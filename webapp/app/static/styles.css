@@ -109,14 +109,15 @@ body {
 }
 
 .global-model-card {
+  width: auto;
   min-width: 260px;
-  max-width: 340px;
+  max-width: 420px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 0.35rem 0.6rem;
+  padding: 0.34rem 0.65rem;
   display: grid;
-  gap: 0.16rem;
+  gap: 0.18rem;
 }
 
 .global-model-head {
@@ -128,19 +129,27 @@ body {
 }
 
 .global-model-controls {
-  display: grid;
-  grid-template-columns: auto minmax(155px, 1fr);
-  gap: 0.5rem;
+  display: flex;
   align-items: center;
-}
-
-.global-model-card .inline-field {
+  gap: 0.55rem;
   min-width: 0;
 }
 
+.global-model-card .inline-field {
+  flex: 1 1 165px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
 .global-model-card .compact-toggle {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   font-size: 0.78rem;
   white-space: nowrap;
+  margin: 0;
 }
 
 .global-model-card .compact-field label,
@@ -155,10 +164,11 @@ body {
 .global-model-card select {
   width: 100%;
   min-width: 155px;
-  max-width: 100%;
-  height: 32px;
-  padding: 0.22rem 0.5rem;
-  font-size: 0.82rem;
+  max-width: 215px;
+  height: 30px;
+  padding: 0.18rem 0.5rem;
+  font-size: 0.8rem;
+  line-height: 1.2;
   color: var(--ink);
   background: #ffffff;
   border-radius: 7px;

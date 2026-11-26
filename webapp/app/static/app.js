@@ -2611,13 +2611,18 @@ async function loadLlmModels() {
     }
 
     const providerLabel = data.provider || 'LLM';
+    const shortProvider = /snowflake\s*cortex/i.test(providerLabel) ? 'Cortex' : providerLabel;
     const providerSpan = chatLlmEnabled && chatLlmEnabled.nextElementSibling;
-    if (providerSpan) providerSpan.textContent = providerLabel;
+    if (providerSpan) {
+      providerSpan.textContent = shortProvider;
+      providerSpan.title = providerLabel;
+    }
 
     if (!data.reachable) {
       chatLlmStatus.textContent = `${providerLabel} is not reachable. Using grounded responses.`;
     } else {
       setLlmControls();
+      chatLlmStatus.textContent = `${providerLabel}: ${chatLlmModel.value}`;
     }
   } catch (err) {
     chatLlmStatus.textContent = 'Could not load Ollama models.';
