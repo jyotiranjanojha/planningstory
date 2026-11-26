@@ -2610,8 +2610,12 @@ async function loadLlmModels() {
       });
     }
 
+    const providerLabel = data.provider || 'LLM';
+    const providerSpan = chatLlmEnabled && chatLlmEnabled.nextElementSibling;
+    if (providerSpan) providerSpan.textContent = providerLabel;
+
     if (!data.reachable) {
-      chatLlmStatus.textContent = 'Ollama is not reachable. Using grounded responses.';
+      chatLlmStatus.textContent = `${providerLabel} is not reachable. Using grounded responses.`;
     } else {
       setLlmControls();
     }

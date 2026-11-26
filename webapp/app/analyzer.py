@@ -190,6 +190,23 @@ def _get_active_llm_config():
             "vision_model": OPENVINO_VISION_MODEL,
             "pipeline": _get_openvino_pipeline(),
         }
+    elif LLM_PROVIDER in {"snowflake_cortex", "cortex", "snowflake"}:
+        sf_base = os.getenv("SNOWFLAKE_CORTEX_BASE_URL", "").strip().rstrip("/")
+        if not sf_base:
+            sf_acct = (os.getenv("SNOWFLAKE_CORTEX_ACCOUNT") or os.getenv("SNOWFLAKE_ACCOUNT") or "").strip()
+            if sf_acct:
+                sf_base = sf_acct.rstrip("/") if sf_acct.startswith(("http://", "https://")) else f"https://{sf_acct}.snowflakecomputing.com"
+        sf_model = os.getenv("SNOWFLAKE_CORTEX_MODEL", "claude-3-5-sonnet").strip()
+        return {
+            "provider": "snowflake_cortex",
+            "base_url": sf_base,
+            "api_key": (os.getenv("SNOWFLAKE_CORTEX_TOKEN") or os.getenv("SNOWFLAKE_PAT") or "").strip() or None,
+            "auth_header": "Authorization",
+            "token_type": os.getenv("SNOWFLAKE_CORTEX_TOKEN_TYPE", "PROGRAMMATIC_ACCESS_TOKEN").strip() or None,
+            "model": sf_model,
+            "judge_model": os.getenv("SNOWFLAKE_CORTEX_JUDGE_MODEL", sf_model).strip(),
+            "vision_model": os.getenv("SNOWFLAKE_CORTEX_VISION_MODEL", sf_model).strip(),
+        }
     elif LLM_PROVIDER == "ollama":
         return {
             "provider": "ollama",
@@ -1964,6 +1981,8 @@ def stream_llm(
     base_url = LLM_CONFIG["base_url"]
     if provider == "azure":
         endpoint = f"{base_url}/chat/completions?api-version={LLM_CONFIG.get('api_version', '2024-02-01')}"
+    elif provider == "snowflake_cortex":
+        endpoint = f"{base_url}/api/v2/cortex/inference:complete"
     else:
         endpoint = f"{base_url}/v1/chat/completions"
 
@@ -1973,6 +1992,10 @@ def stream_llm(
         headers[auth_hdr] = f"Bearer {LLM_CONFIG['api_key']}" if auth_hdr == "Authorization" else LLM_CONFIG['api_key']
     if provider == "anthropic":
         headers["anthropic-version"] = "2023-06-01"
+    if provider == "snowflake_cortex":
+        headers["Accept"] = "text/event-stream"
+        if LLM_CONFIG.get("token_type"):
+            headers["X-Snowflake-Authorization-Token-Type"] = LLM_CONFIG["token_type"]
 
     req = request.Request(endpoint, data=data, headers=headers, method="POST")
     try:
@@ -2398,10 +2421,12 @@ def _ollama_chat_with_model(
 
     data = json.dumps(payload).encode("utf-8")
     
-    # Azure uses /chat/completions?api-version=... (no /v1/ prefix); all others use /v1/chat/completions
+    # Azure uses /chat/completions?api-version=...; Snowflake Cortex uses /api/v2/cortex/inference:complete
     base_url = LLM_CONFIG["base_url"]
     if LLM_CONFIG.get("provider") == "azure":
         endpoint = f"{base_url}/chat/completions?api-version={LLM_CONFIG.get('api_version', '2024-02-01')}"
+    elif LLM_CONFIG.get("provider") == "snowflake_cortex":
+        endpoint = f"{base_url}/api/v2/cortex/inference:complete"
     else:
         endpoint = f"{base_url}/v1/chat/completions"
     
@@ -2412,6 +2437,10 @@ def _ollama_chat_with_model(
         headers[auth_hdr] = f"Bearer {LLM_CONFIG['api_key']}" if auth_hdr == "Authorization" else LLM_CONFIG['api_key']
     if LLM_CONFIG.get("provider") == "anthropic":
         headers["anthropic-version"] = "2023-06-01"
+    if LLM_CONFIG.get("provider") == "snowflake_cortex":
+        headers["Accept"] = "application/json"
+        if LLM_CONFIG.get("token_type"):
+            headers["X-Snowflake-Authorization-Token-Type"] = LLM_CONFIG["token_type"]
     
     req = request.Request(
         endpoint,
@@ -2532,6 +2561,36 @@ def list_ollama_models() -> Dict:
                     "recommended": True,
                     "note": f"Azure deployment: {model}, api-version: {LLM_CONFIG.get('api_version')}",
                 }
+            },
+        }
+
+    # Handle Snowflake Cortex — return curated enterprise Cortex model list
+    if provider == "snowflake_cortex":
+        env_models = [m.strip() for m in os.getenv("SNOWFLAKE_CORTEX_MODELS", "").split(",") if m.strip()]
+        default_list = env_models or [
+            "claude-3-5-sonnet",
+            "claude-3-7-sonnet",
+            "llama3.3-70b",
+            "llama3.1-70b",
+            "mistral-large2",
+            "snowflake-arctic",
+            "openai-gpt-4.1",
+        ]
+        ordered = list(dict.fromkeys([model] + default_list))
+        reachable = bool(LLM_CONFIG.get("base_url") and LLM_CONFIG.get("api_key"))
+        return {
+            "provider": "Snowflake Cortex",
+            "reachable": reachable,
+            "default_model": model,
+            "best_available": model,
+            "recommended_models": ordered[:3],
+            "models": ordered,
+            "model_info": {
+                m: {
+                    "recommended": m in ordered[:3],
+                    "note": "Configured default Snowflake Cortex model" if m == model else "Snowflake Cortex managed LLM",
+                }
+                for m in ordered
             },
         }
 

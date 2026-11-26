@@ -1,6 +1,6 @@
 """Unified, .env-driven LLM client for IFSP V2 Core.
 
-Supports: ollama, nollama, openai, azure, anthropic, openvino, custom.
+Supports: ollama, snowflake_cortex, nollama, openai, azure, anthropic, openvino, custom.
 Switching providers is a .env-only change (LLM_PROVIDER=<provider>).
 """
 
@@ -34,8 +34,32 @@ class LLMSettings:
     api_key: Optional[str] = None
     auth_header: str = "Authorization"
     api_version: Optional[str] = None
+    token_type: Optional[str] = None
     http_timeout_secs: int = 120
     ttft_timeout_secs: int = 90
+
+
+_DEFAULT_CORTEX_MODELS = [
+    "claude-3-5-sonnet",
+    "claude-3-7-sonnet",
+    "llama3.3-70b",
+    "llama3.1-70b",
+    "mistral-large2",
+    "snowflake-arctic",
+    "openai-gpt-4.1",
+]
+
+
+def _resolve_cortex_base_url() -> str:
+    explicit = os.getenv("SNOWFLAKE_CORTEX_BASE_URL", "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    account = (os.getenv("SNOWFLAKE_CORTEX_ACCOUNT") or os.getenv("SNOWFLAKE_ACCOUNT") or "").strip()
+    if account:
+        if account.startswith("http://") or account.startswith("https://"):
+            return account.rstrip("/")
+        return f"https://{account}.snowflakecomputing.com"
+    return ""
 
 
 def load_llm_settings() -> LLMSettings:
@@ -52,6 +76,21 @@ def load_llm_settings() -> LLMSettings:
             model=model,
             sql_model=os.getenv("OLLAMA_SQL_MODEL", model).strip(),
             vision_model=os.getenv("OLLAMA_VISION_MODEL", "gemma3:latest").strip(),
+            http_timeout_secs=http_timeout,
+            ttft_timeout_secs=ttft_timeout,
+        )
+
+    if provider in {"snowflake_cortex", "cortex", "snowflake"}:
+        model = os.getenv("SNOWFLAKE_CORTEX_MODEL", "claude-3-5-sonnet").strip()
+        return LLMSettings(
+            provider="snowflake_cortex",
+            base_url=_resolve_cortex_base_url(),
+            model=model,
+            sql_model=os.getenv("SNOWFLAKE_CORTEX_SQL_MODEL", model).strip(),
+            vision_model=os.getenv("SNOWFLAKE_CORTEX_VISION_MODEL", model).strip(),
+            api_key=(os.getenv("SNOWFLAKE_CORTEX_TOKEN") or os.getenv("SNOWFLAKE_PAT") or "").strip() or None,
+            auth_header="Authorization",
+            token_type=os.getenv("SNOWFLAKE_CORTEX_TOKEN_TYPE", "PROGRAMMATIC_ACCESS_TOKEN").strip() or None,
             http_timeout_secs=http_timeout,
             ttft_timeout_secs=ttft_timeout,
         )
@@ -140,14 +179,29 @@ class UnifiedLLMClient:
                 headers[self.settings.auth_header] = self.settings.api_key
         if self.settings.provider == "anthropic":
             headers["anthropic-version"] = "2023-06-01"
+        if self.settings.provider == "snowflake_cortex":
+            headers["Accept"] = "application/json"
+            if self.settings.token_type:
+                headers["X-Snowflake-Authorization-Token-Type"] = self.settings.token_type
         return headers
 
     def _completions_url(self) -> str:
         if self.settings.provider == "azure":
             return f"{self.settings.base_url}/chat/completions?api-version={self.settings.api_version}"
+        if self.settings.provider == "snowflake_cortex":
+            return f"{self.settings.base_url}/api/v2/cortex/inference:complete"
         return f"{self.settings.base_url}/v1/chat/completions"
 
     def list_models(self) -> Dict[str, Any]:
+        if self.settings.provider == "snowflake_cortex":
+            env_models = [m.strip() for m in os.getenv("SNOWFLAKE_CORTEX_MODELS", "").split(",") if m.strip()]
+            models = list(dict.fromkeys([self.settings.model] + (env_models or _DEFAULT_CORTEX_MODELS)))
+            return {
+                "provider": "snowflake_cortex",
+                "reachable": bool(self.settings.base_url and self.settings.api_key),
+                "default_model": self.settings.model,
+                "models": models,
+            }
         req = request.Request(
             f"{self.settings.base_url}/v1/models",
             headers=self._headers(),

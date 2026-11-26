@@ -136,3 +136,28 @@ def test_v2_llm_settings_loopback_normalization(monkeypatch):
     settings = load_llm_settings()
     assert settings.provider == "ollama"
     assert settings.base_url == "http://127.0.0.1:11434"
+
+
+def test_v2_snowflake_cortex_llm_provider(monkeypatch):
+    from webapp.app.v2.core.llm import UnifiedLLMClient
+
+    monkeypatch.setenv("LLM_PROVIDER", "snowflake_cortex")
+    monkeypatch.setenv("SNOWFLAKE_CORTEX_ACCOUNT", "intel-foundry-prod")
+    monkeypatch.setenv("SNOWFLAKE_CORTEX_TOKEN", "test-pat-token")
+    monkeypatch.setenv("SNOWFLAKE_CORTEX_MODEL", "claude-3-5-sonnet")
+
+    settings = load_llm_settings()
+    assert settings.provider == "snowflake_cortex"
+    assert settings.base_url == "https://intel-foundry-prod.snowflakecomputing.com"
+    assert settings.model == "claude-3-5-sonnet"
+
+    client = UnifiedLLMClient(settings)
+    assert client._completions_url() == "https://intel-foundry-prod.snowflakecomputing.com/api/v2/cortex/inference:complete"
+    headers = client._headers()
+    assert headers["Authorization"] == "Bearer test-pat-token"
+    assert headers["X-Snowflake-Authorization-Token-Type"] == "PROGRAMMATIC_ACCESS_TOKEN"
+
+    listed = client.list_models()
+    assert listed["provider"] == "snowflake_cortex"
+    assert listed["reachable"] is True
+    assert "claude-3-5-sonnet" in listed["models"]
