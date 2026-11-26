@@ -161,3 +161,21 @@ def test_v2_snowflake_cortex_llm_provider(monkeypatch):
     assert listed["provider"] == "snowflake_cortex"
     assert listed["reachable"] is True
     assert "claude-3-5-sonnet" in listed["models"]
+
+
+def test_v2_snowflake_cortex_sql_mode(monkeypatch):
+    from webapp.app.v2.core.llm import _parse_cortex_sql_result
+
+    monkeypatch.setenv("LLM_PROVIDER", "snowflake_cortex")
+    monkeypatch.setenv("SNOWFLAKE_CORTEX_MODE", "sql")
+    monkeypatch.setenv("SNOWFLAKE_CORTEX_ACCOUNT", "XD14286-IFCDWDEV2")
+    monkeypatch.setenv("SNOWFLAKE_USER", "planner@intel.com")
+
+    settings = load_llm_settings()
+    assert settings.provider == "snowflake_cortex"
+    assert settings.cortex_mode == "sql"
+    assert settings.base_url == "https://XD14286-IFCDWDEV2.snowflakecomputing.com"
+
+    assert _parse_cortex_sql_result('{"choices":[{"messages":"Cortex SQL OK"}]}') == "Cortex SQL OK"
+    assert _parse_cortex_sql_result('{"choices":[{"message":{"content":"Nested OK"}}]}') == "Nested OK"
+    assert _parse_cortex_sql_result("Plain text reply") == "Plain text reply"

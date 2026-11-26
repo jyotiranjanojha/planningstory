@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Generator, Optional
+from typing import Any, Dict, Generator, List, Optional
 from urllib import error, request
 
 
@@ -35,8 +36,127 @@ class LLMSettings:
     auth_header: str = "Authorization"
     api_version: Optional[str] = None
     token_type: Optional[str] = None
+    cortex_mode: str = "rest"  # "rest" (PAT/JWT) or "sql" (SNOWFLAKE.CORTEX.COMPLETE)
     http_timeout_secs: int = 120
     ttft_timeout_secs: int = 90
+
+
+_SF_CONN_LOCK = threading.Lock()
+_SF_CONN: Any = None
+
+
+def _parse_cortex_sql_result(raw: Any) -> Optional[str]:
+    """Extract assistant text from SNOWFLAKE.CORTEX.COMPLETE() SQL output."""
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return None
+        if text.startswith("{"):
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                return text
+            raw = parsed
+        else:
+            return text
+    if isinstance(raw, dict):
+        choices = raw.get("choices") or []
+        if choices and isinstance(choices[0], dict):
+            c0 = choices[0]
+            if isinstance(c0.get("messages"), str):
+                return c0["messages"].strip() or None
+            msg = c0.get("message")
+            if isinstance(msg, dict) and isinstance(msg.get("content"), str):
+                return msg["content"].strip() or None
+            if isinstance(c0.get("text"), str):
+                return c0["text"].strip() or None
+        if isinstance(raw.get("content"), str):
+            return raw["content"].strip() or None
+    return str(raw).strip() or None
+
+
+def _get_snowflake_connection():
+    """Return a cached snowflake.connector connection (supports externalbrowser SSO)."""
+    global _SF_CONN
+    with _SF_CONN_LOCK:
+        if _SF_CONN is not None:
+            try:
+                if not _SF_CONN.is_closed():
+                    return _SF_CONN
+            except Exception:
+                _SF_CONN = None
+
+        import snowflake.connector  # type: ignore
+
+        account = (os.getenv("SNOWFLAKE_CORTEX_ACCOUNT") or os.getenv("SNOWFLAKE_ACCOUNT") or "").strip()
+        account = account.replace("https://", "").replace("http://", "").split(".snowflakecomputing.com")[0].strip("/")
+        user = (os.getenv("SNOWFLAKE_USER") or "").strip()
+        authenticator = (os.getenv("SNOWFLAKE_AUTHENTICATOR") or "externalbrowser").strip()
+        kwargs: Dict[str, Any] = {
+            "account": account,
+            "user": user,
+            "authenticator": authenticator,
+            "client_store_temporary_credential": True,
+        }
+        password = (os.getenv("SNOWFLAKE_PASSWORD") or "").strip()
+        if password and authenticator.lower() == "snowflake":
+            kwargs["password"] = password
+        for env_key, param_key in (
+            ("SNOWFLAKE_ROLE", "role"),
+            ("SNOWFLAKE_WAREHOUSE", "warehouse"),
+            ("SNOWFLAKE_DATABASE", "database"),
+            ("SNOWFLAKE_SCHEMA", "schema"),
+        ):
+            val = (os.getenv(env_key) or "").strip()
+            if val:
+                kwargs[param_key] = val
+
+        _SF_CONN = snowflake.connector.connect(**kwargs)
+        # If no warehouse was configured in .env, auto-select the first available warehouse
+        if "warehouse" not in kwargs:
+            try:
+                cur = _SF_CONN.cursor()
+                try:
+                    cur.execute("SHOW WAREHOUSES")
+                    wh_row = cur.fetchone()
+                    if wh_row and wh_row[0]:
+                        cur.execute(f'USE WAREHOUSE "{wh_row[0]}"')
+                finally:
+                    cur.close()
+            except Exception:
+                pass
+        return _SF_CONN
+
+
+def cortex_sql_complete(
+    messages: List[Dict[str, str]],
+    model: str,
+    temperature: float = 0.2,
+    max_tokens: int = 500,
+) -> Optional[str]:
+    """Call SNOWFLAKE.CORTEX.COMPLETE(model, messages, options) via Snowflake SQL."""
+    conn = _get_snowflake_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT SNOWFLAKE.CORTEX.COMPLETE(
+                %s,
+                PARSE_JSON(%s),
+                OBJECT_CONSTRUCT('temperature', %s, 'max_tokens', %s)
+            )
+            """,
+            (model, json.dumps(messages), float(temperature), int(max_tokens)),
+        )
+        row = cur.fetchone()
+        return _parse_cortex_sql_result(row[0] if row else None)
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
 
 
 _DEFAULT_CORTEX_MODELS = [
@@ -53,11 +173,13 @@ _DEFAULT_CORTEX_MODELS = [
 def _resolve_cortex_base_url() -> str:
     explicit = os.getenv("SNOWFLAKE_CORTEX_BASE_URL", "").strip().rstrip("/")
     if explicit:
-        return explicit
+        return explicit if explicit.startswith(("http://", "https://")) else f"https://{explicit}"
     account = (os.getenv("SNOWFLAKE_CORTEX_ACCOUNT") or os.getenv("SNOWFLAKE_ACCOUNT") or "").strip()
     if account:
-        if account.startswith("http://") or account.startswith("https://"):
+        if account.startswith(("http://", "https://")):
             return account.rstrip("/")
+        if "." in account:
+            return f"https://{account.rstrip('/')}"
         return f"https://{account}.snowflakecomputing.com"
     return ""
 
@@ -82,6 +204,9 @@ def load_llm_settings() -> LLMSettings:
 
     if provider in {"snowflake_cortex", "cortex", "snowflake"}:
         model = os.getenv("SNOWFLAKE_CORTEX_MODEL", "claude-3-5-sonnet").strip()
+        cortex_mode = os.getenv("SNOWFLAKE_CORTEX_MODE", "rest").strip().lower()
+        if cortex_mode not in {"rest", "sql"}:
+            cortex_mode = "rest"
         return LLMSettings(
             provider="snowflake_cortex",
             base_url=_resolve_cortex_base_url(),
@@ -91,6 +216,7 @@ def load_llm_settings() -> LLMSettings:
             api_key=(os.getenv("SNOWFLAKE_CORTEX_TOKEN") or os.getenv("SNOWFLAKE_PAT") or "").strip() or None,
             auth_header="Authorization",
             token_type=os.getenv("SNOWFLAKE_CORTEX_TOKEN_TYPE", "PROGRAMMATIC_ACCESS_TOKEN").strip() or None,
+            cortex_mode=cortex_mode,
             http_timeout_secs=http_timeout,
             ttft_timeout_secs=ttft_timeout,
         )
@@ -196,9 +322,15 @@ class UnifiedLLMClient:
         if self.settings.provider == "snowflake_cortex":
             env_models = [m.strip() for m in os.getenv("SNOWFLAKE_CORTEX_MODELS", "").split(",") if m.strip()]
             models = list(dict.fromkeys([self.settings.model] + (env_models or _DEFAULT_CORTEX_MODELS)))
+            reachable = (
+                bool(self.settings.base_url and os.getenv("SNOWFLAKE_USER", "").strip())
+                if self.settings.cortex_mode == "sql"
+                else bool(self.settings.base_url and self.settings.api_key)
+            )
             return {
                 "provider": "snowflake_cortex",
-                "reachable": bool(self.settings.base_url and self.settings.api_key),
+                "mode": self.settings.cortex_mode,
+                "reachable": reachable,
                 "default_model": self.settings.model,
                 "models": models,
             }
@@ -233,12 +365,20 @@ class UnifiedLLMClient:
         max_tokens: int = 400,
         temperature: float = 0.2,
     ) -> Optional[str]:
+        selected = (model or self.settings.model).strip()
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ]
+        if self.settings.provider == "snowflake_cortex" and self.settings.cortex_mode == "sql":
+            try:
+                return cortex_sql_complete(messages, selected, temperature=temperature, max_tokens=max_tokens)
+            except Exception:
+                return None
+
         payload = {
-            "model": (model or self.settings.model).strip(),
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
+            "model": selected,
+            "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": False,
@@ -267,12 +407,23 @@ class UnifiedLLMClient:
         max_tokens: int = 400,
         temperature: float = 0.2,
     ) -> Generator[str, None, None]:
+        selected = (model or self.settings.model).strip()
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ]
+        if self.settings.provider == "snowflake_cortex" and self.settings.cortex_mode == "sql":
+            try:
+                reply = cortex_sql_complete(messages, selected, temperature=temperature, max_tokens=max_tokens)
+                if reply:
+                    yield reply
+            except Exception:
+                return
+            return
+
         payload = {
-            "model": (model or self.settings.model).strip(),
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
+            "model": selected,
+            "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,

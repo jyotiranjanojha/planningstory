@@ -192,17 +192,26 @@ def _get_active_llm_config():
         }
     elif LLM_PROVIDER in {"snowflake_cortex", "cortex", "snowflake"}:
         sf_base = os.getenv("SNOWFLAKE_CORTEX_BASE_URL", "").strip().rstrip("/")
+        if sf_base and not sf_base.startswith(("http://", "https://")):
+            sf_base = f"https://{sf_base}"
         if not sf_base:
             sf_acct = (os.getenv("SNOWFLAKE_CORTEX_ACCOUNT") or os.getenv("SNOWFLAKE_ACCOUNT") or "").strip()
             if sf_acct:
-                sf_base = sf_acct.rstrip("/") if sf_acct.startswith(("http://", "https://")) else f"https://{sf_acct}.snowflakecomputing.com"
+                if sf_acct.startswith(("http://", "https://")):
+                    sf_base = sf_acct.rstrip("/")
+                elif "." in sf_acct:
+                    sf_base = f"https://{sf_acct.rstrip('/')}"
+                else:
+                    sf_base = f"https://{sf_acct}.snowflakecomputing.com"
         sf_model = os.getenv("SNOWFLAKE_CORTEX_MODEL", "claude-3-5-sonnet").strip()
+        sf_mode = os.getenv("SNOWFLAKE_CORTEX_MODE", "rest").strip().lower()
         return {
             "provider": "snowflake_cortex",
             "base_url": sf_base,
             "api_key": (os.getenv("SNOWFLAKE_CORTEX_TOKEN") or os.getenv("SNOWFLAKE_PAT") or "").strip() or None,
             "auth_header": "Authorization",
             "token_type": os.getenv("SNOWFLAKE_CORTEX_TOKEN_TYPE", "PROGRAMMATIC_ACCESS_TOKEN").strip() or None,
+            "cortex_mode": sf_mode if sf_mode in {"rest", "sql"} else "rest",
             "model": sf_model,
             "judge_model": os.getenv("SNOWFLAKE_CORTEX_JUDGE_MODEL", sf_model).strip(),
             "vision_model": os.getenv("SNOWFLAKE_CORTEX_VISION_MODEL", sf_model).strip(),
@@ -1969,6 +1978,16 @@ def stream_llm(
             messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": prompt})
 
+    if provider == "snowflake_cortex" and LLM_CONFIG.get("cortex_mode") == "sql":
+        try:
+            from .v2.core.llm import cortex_sql_complete
+            reply = cortex_sql_complete(messages, selected_model, temperature=0.2, max_tokens=400)
+            if reply:
+                yield reply
+        except Exception as _exc:
+            print(f"[IFSP] Snowflake Cortex SQL stream error: {_exc}")
+        return
+
     payload = {
         "model": selected_model,
         "messages": messages,
@@ -2419,6 +2438,13 @@ def _ollama_chat_with_model(
         "max_tokens": 900,
     }
 
+    if LLM_CONFIG.get("provider") == "snowflake_cortex" and LLM_CONFIG.get("cortex_mode") == "sql":
+        try:
+            from .v2.core.llm import cortex_sql_complete
+            return cortex_sql_complete(payload["messages"], payload["model"], temperature=0.2, max_tokens=900)
+        except Exception:
+            return None
+
     data = json.dumps(payload).encode("utf-8")
     
     # Azure uses /chat/completions?api-version=...; Snowflake Cortex uses /api/v2/cortex/inference:complete
@@ -2577,9 +2603,14 @@ def list_ollama_models() -> Dict:
             "openai-gpt-4.1",
         ]
         ordered = list(dict.fromkeys([model] + default_list))
-        reachable = bool(LLM_CONFIG.get("base_url") and LLM_CONFIG.get("api_key"))
+        cortex_mode = LLM_CONFIG.get("cortex_mode", "rest")
+        reachable = (
+            bool(LLM_CONFIG.get("base_url") and os.getenv("SNOWFLAKE_USER", "").strip())
+            if cortex_mode == "sql"
+            else bool(LLM_CONFIG.get("base_url") and LLM_CONFIG.get("api_key"))
+        )
         return {
-            "provider": "Snowflake Cortex",
+            "provider": f"Snowflake Cortex ({cortex_mode.upper()})",
             "reachable": reachable,
             "default_model": model,
             "best_available": model,
