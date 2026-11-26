@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 430" width="1120" height="430" role="img" aria-label="Planning Story V2 Enterprise Architecture">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f7faff"/>
+      <stop offset="100%" stop-color="#edf3fa"/>
+    </linearGradient>
+    <linearGradient id="intelGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0068B5"/>
+      <stop offset="100%" stop-color="#00A3E0"/>
+    </linearGradient>
+    <filter id="cardShadow" x="-4%" y="-6%" width="108%" height="116%">
+      <feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#0f253c" flood-opacity="0.08"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#0068B5"/>
+    </marker>
+  </defs>
+
+  <rect width="1120" height="430" rx="18" fill="url(#bgGrad)" stroke="#d5e2f0" stroke-width="1.5"/>
+
+  <!-- Header Strip -->
+  <rect x="0" y="0" width="1120" height="54" rx="18" fill="url(#intelGrad)"/>
+  <rect x="0" y="36" width="1120" height="18" fill="url(#intelGrad)"/>
+  <text x="28" y="34" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">Intel Foundry Planning Story v2.1 — Enterprise Single-Origin Architecture</text>
+  <rect x="920" y="14" width="176" height="26" rx="13" fill="rgba(255,255,255,0.18)"/>
+  <text x="1008" y="31" text-anchor="middle" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="11.5" font-weight="700">HARBOR + RANCHER READY</text>
+
+  <!-- Box 1: User / Ingress -->
+  <g filter="url(#cardShadow)">
+    <rect x="26" y="88" width="180" height="224" rx="14" fill="#ffffff" stroke="#c8daec" stroke-width="1.4"/>
+    <rect x="26" y="88" width="180" height="34" rx="14" fill="#e8f3fc"/>
+    <text x="116" y="110" text-anchor="middle" fill="#004e8c" font-family="Segoe UI, Arial, sans-serif" font-size="12.5" font-weight="700">1. Client &amp; Ingress</text>
+    <text x="42" y="146" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700">Planner Web UI</text>
+    <text x="42" y="164" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11">Chat • Validation • Compare</text>
+    <text x="42" y="180" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11">Root Cause • Graph • KPIs</text>
+    <line x1="42" y1="198" x2="190" y2="198" stroke="#e2ecf5"/>
+    <text x="42" y="218" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700">Rancher NGINX Ingress</text>
+    <text x="42" y="236" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11">• TLS + Sticky Cookies</text>
+    <text x="42" y="252" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11">• proxy-buffering: off</text>
+    <text x="42" y="268" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11">• 300s SSE Timeout</text>
+    <rect x="42" y="282" width="148" height="20" rx="10" fill="#dcfce7"/>
+    <text x="116" y="296" text-anchor="middle" fill="#166534" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700">Single Origin (:3000)</text>
+  </g>
+
+  <!-- Arrow 1->2 -->
+  <line x1="208" y1="200" x2="246" y2="200" stroke="#0068B5" stroke-width="2.2" marker-end="url(#arrow)"/>
+
+  <!-- Box 2: Node Gateway -->
+  <g filter="url(#cardShadow)">
+    <rect x="252" y="88" width="210" height="224" rx="14" fill="#ffffff" stroke="#c8daec" stroke-width="1.4"/>
+    <rect x="252" y="88" width="210" height="34" rx="14" fill="#e6f7ef"/>
+    <text x="357" y="110" text-anchor="middle" fill="#166534" font-family="Segoe UI, Arial, sans-serif" font-size="12.5" font-weight="700">2. Node.js Gateway (:3000)</text>
+    <text x="268" y="146" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700">Microsoft Entra ID SSO</text>
+    <text x="268" y="164" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11">• OAuth2 + httpOnly Cookies</text>
+    <text x="268" y="180" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11">• CSRF oauth_state Guard</text>
+    <line x1="268" y1="196" x2="446" y2="196" stroke="#e2ecf5"/>
+    <text x="268" y="216" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700">Transparent Proxy Layer</text>
+    <text x="268" y="234" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11">• Pooled Keep-Alive Sockets</text>
+    <text x="268" y="250" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11">• Unbuffered SSE Streaming</text>
+    <text x="268" y="266" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11">• /api/ready K8s Probe</text>
+    <rect x="268" y="282" width="178" height="20" rx="10" fill="#e0f2fe"/>
+    <text x="357" y="296" text-anchor="middle" fill="#0369a1" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700">127.0.0.1 IPv4 · ~5ms Hop</text>
+  </g>
+
+  <!-- Arrow 2->3 -->
+  <line x1="464" y1="200" x2="502" y2="200" stroke="#0068B5" stroke-width="2.2" marker-end="url(#arrow)"/>
+
+  <!-- Box 3: Python V2 Multi-Agent Core -->
+  <g filter="url(#cardShadow)">
+    <rect x="508" y="76" width="320" height="252" rx="14" fill="#ffffff" stroke="#0068B5" stroke-width="1.8"/>
+    <rect x="508" y="76" width="320" height="34" rx="14" fill="#0068B5"/>
+    <text x="668" y="98" text-anchor="middle" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="12.5" font-weight="700">3. FastAPI + V2 Multi-Agent Core (127.0.0.1:8001)</text>
+    <text x="524" y="130" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="11.5" font-weight="700">PlanningCopilotV2 Orchestrator (&lt;1ms Routing + Session Memory)</text>
+
+    <!-- 9 Agent Pills (3x3 Grid) -->
+    <rect x="524" y="142" width="92" height="32" rx="8" fill="#eff6ff" stroke="#bfdbfe"/>
+    <text x="570" y="162" text-anchor="middle" fill="#1e40af" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700">Fulfillment</text>
+
+    <rect x="622" y="142" width="92" height="32" rx="8" fill="#eff6ff" stroke="#bfdbfe"/>
+    <text x="668" y="162" text-anchor="middle" fill="#1e40af" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700">Capacity</text>
+
+    <rect x="720" y="142" width="92" height="32" rx="8" fill="#eff6ff" stroke="#bfdbfe"/>
+    <text x="766" y="162" text-anchor="middle" fill="#1e40af" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700">Inventory</text>
+
+    <rect x="524" y="182" width="92" height="32" rx="8" fill="#f0fdf4" stroke="#bbf7d0"/>
+    <text x="570" y="202" text-anchor="middle" fill="#166534" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700">Validation (5)</text>
+
+    <rect x="622" y="182" width="92" height="32" rx="8" fill="#f0fdf4" stroke="#bbf7d0"/>
+    <text x="668" y="202" text-anchor="middle" fill="#166534" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700">Root Cause</text>
+
+    <rect x="720" y="182" width="92" height="32" rx="8" fill="#f0fdf4" stroke="#bbf7d0"/>
+    <text x="766" y="202" text-anchor="middle" fill="#166534" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700">Graph Lineage</text>
+
+    <rect x="524" y="222" width="92" height="32" rx="8" fill="#fff7ed" stroke="#fed7aa"/>
+    <text x="570" y="242" text-anchor="middle" fill="#9a3412" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700">BOM Lineage</text>
+
+    <rect x="622" y="222" width="92" height="32" rx="8" fill="#fff7ed" stroke="#fed7aa"/>
+    <text x="668" y="242" text-anchor="middle" fill="#9a3412" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700">Supply Orders</text>
+
+    <rect x="720" y="222" width="92" height="32" rx="8" fill="#fff7ed" stroke="#fed7aa"/>
+    <text x="766" y="242" text-anchor="middle" fill="#9a3412" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700">Scenarios</text>
+
+    <line x1="524" y1="268" x2="812" y2="268" stroke="#e2ecf5"/>
+    <text x="524" y="288" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11">• ConversationManager (JSONL + Atomic Index)</text>
+    <text x="524" y="306" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11">• Grounded Evidence • Zero Hallucination Policy</text>
+  </g>
+
+  <!-- Arrow 3->4 -->
+  <line x1="830" y1="150" x2="868" y2="150" stroke="#0068B5" stroke-width="2.2" marker-end="url(#arrow)"/>
+  <line x1="830" y1="260" x2="868" y2="260" stroke="#0068B5" stroke-width="2.2" marker-end="url(#arrow)"/>
+
+  <!-- Box 4A: DuckDB Data Engine -->
+  <g filter="url(#cardShadow)">
+    <rect x="874" y="88" width="220" height="114" rx="14" fill="#ffffff" stroke="#c8daec" stroke-width="1.4"/>
+    <rect x="874" y="88" width="220" height="32" rx="14" fill="#fef3c7"/>
+    <text x="984" y="109" text-anchor="middle" fill="#92400e" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700">4a. DuckDB Engine (40 Views)</text>
+    <text x="890" y="142" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="11.5" font-weight="700">BY ESP Live Snapshots</text>
+    <text x="890" y="160" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11">• 22 Input tables (by_input/)</text>
+    <text x="890" y="176" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11">• 18 Output tables (by_output/)</text>
+    <text x="890" y="192" fill="#166534" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700">⚡ 40–200ms SQL Execution</text>
+  </g>
+
+  <!-- Box 4B: Unified LLM Layer -->
+  <g filter="url(#cardShadow)">
+    <rect x="874" y="216" width="220" height="106" rx="14" fill="#ffffff" stroke="#c8daec" stroke-width="1.4"/>
+    <rect x="874" y="216" width="220" height="32" rx="14" fill="#f3e8ff"/>
+    <text x="984" y="237" text-anchor="middle" fill="#6b21a8" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700">4b. Unified LLM Client (.env)</text>
+    <text x="890" y="270" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="11.5" font-weight="700">Ollama (Default) / Multi-Cloud</text>
+    <text x="890" y="288" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11">• qwen2.5-coder • gemma3</text>
+    <text x="890" y="304" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11">• OpenAI • Azure • Anthropic</text>
+  </g>
+
+  <!-- Bottom Security & Observability Strip -->
+  <rect x="26" y="352" width="1068" height="54" rx="12" fill="#ffffff" stroke="#d5e2f0"/>
+  <text x="46" y="384" fill="#004e8c" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700">Enterprise Guardrails:</text>
+  <text x="195" y="384" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11.5">Non-Root UID 10001  •  Secrets via K8s Secret (No .env in Git)  •  Harbor imagePullSecrets  •  RollingUpdate (maxUnavailable: 0)  •  Live /api/ready Probe</text>
+</svg>

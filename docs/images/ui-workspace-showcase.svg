@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 500" width="1120" height="500" role="img" aria-label="Planning Story V2 Enterprise Workspace Preview">
+  <defs>
+    <filter id="sh" x="-4%" y="-6%" width="108%" height="116%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0f253c" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <!-- Outer Canvas -->
+  <rect width="1120" height="500" rx="18" fill="#f3f6fa" stroke="#d5e2f0" stroke-width="1.5"/>
+
+  <!-- Top Enterprise Header Bar -->
+  <g filter="url(#sh)">
+    <rect x="20" y="18" width="1080" height="56" rx="12" fill="#ffffff" stroke="#dbe5f0"/>
+    <!-- Intel Accent Mark -->
+    <rect x="38" y="33" width="9" height="9" fill="#04C7FD"/>
+    <text x="52" y="52" fill="#0068B5" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="800">intel</text>
+    <line x1="116" y1="32" x2="116" y2="60" stroke="#dbe5f0" stroke-width="1.5"/>
+    <text x="132" y="44" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="800">Intel Foundry Planning AI Assistant</text>
+    <text x="132" y="60" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="10.5">Automated Validation, Scenario Analysis, Knowledge Graph &amp; Root-Cause Intelligence</text>
+
+    <!-- Right Header Controls -->
+    <rect x="654" y="31" width="114" height="30" rx="15" fill="#f7f9fc" stroke="#cbd9e8"/>
+    <text x="711" y="50" text-anchor="middle" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="11" font-weight="700">Dataset Summary</text>
+
+    <rect x="778" y="29" width="184" height="34" rx="9" fill="#f7f9fc" stroke="#cbd9e8"/>
+    <text x="790" y="50" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700">☑ Ollama</text>
+    <rect x="850" y="34" width="104" height="24" rx="6" fill="#ffffff" stroke="#cbd9e8"/>
+    <text x="858" y="50" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="10">★ qwen2.5-coder</text>
+
+    <rect x="972" y="31" width="112" height="30" rx="15" fill="#dcfce7" stroke="#86efac"/>
+    <circle cx="990" cy="46" r="4.5" fill="#16a34a"/>
+    <text x="1002" y="50" fill="#166534" font-family="Segoe UI, Arial, sans-serif" font-size="11" font-weight="700">Connected</text>
+  </g>
+
+  <!-- Left Navigation Rail -->
+  <g filter="url(#sh)">
+    <rect x="20" y="88" width="168" height="392" rx="12" fill="#ffffff" stroke="#dbe5f0"/>
+    <text x="36" y="114" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="10" font-weight="800">MENU</text>
+
+    <rect x="30" y="128" width="148" height="36" rx="8" fill="#e8f3fc"/>
+    <rect x="30" y="128" width="4" height="36" rx="2" fill="#0068B5"/>
+    <text x="46" y="150" fill="#004e8c" font-family="Segoe UI, Arial, sans-serif" font-size="11.5" font-weight="700">C  Chat Assistant</text>
+
+    <text x="46" y="192" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11.5" font-weight="600">V  Validation Gate</text>
+    <text x="46" y="232" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11.5" font-weight="600">S  Scenario Compare</text>
+    <text x="46" y="272" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11.5" font-weight="600">R  Root Cause</text>
+    <text x="46" y="312" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11.5" font-weight="600">I  Analytics Module</text>
+    <text x="46" y="352" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="11.5" font-weight="600">G  Knowledge Graph</text>
+  </g>
+
+  <!-- Feature Card 1: Gemini-Style Chat Assistant -->
+  <g filter="url(#sh)">
+    <rect x="204" y="88" width="290" height="392" rx="12" fill="#ffffff" stroke="#dbe5f0"/>
+    <text x="220" y="116" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="800">Gemini-Style Chat Assistant</text>
+    <rect x="412" y="99" width="66" height="24" rx="12" fill="#0068B5"/>
+    <text x="445" y="115" text-anchor="middle" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="10" font-weight="700">+ New Chat</text>
+
+    <!-- User Bubble -->
+    <rect x="278" y="138" width="200" height="34" rx="10" fill="#e8f3fc"/>
+    <text x="290" y="159" fill="#004e8c" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="600">Which resources are bottlenecks?</text>
+
+    <!-- Assistant Bubble -->
+    <rect x="220" y="182" width="258" height="106" rx="10" fill="#f7f9fc" stroke="#dbe5f0"/>
+    <text x="232" y="202" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700">Capacity &amp; Utilization — 97 Resources</text>
+    <text x="232" y="220" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="10">• Avg Utilization: 13.6% | Overloaded: 314</text>
+    <text x="232" y="236" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="10">• Top: RES_NO_SORT_RESOURCE_SAL_SAL</text>
+    <rect x="232" y="250" width="132" height="22" rx="11" fill="#e0f2fe"/>
+    <text x="298" y="265" text-anchor="middle" fill="#0369a1" font-family="Segoe UI, Arial, sans-serif" font-size="9.5" font-weight="700">Which items are impacted?</text>
+
+    <!-- Follow-up Turn -->
+    <rect x="258" y="298" width="220" height="30" rx="10" fill="#e8f3fc"/>
+    <text x="270" y="317" fill="#004e8c" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="600">This resource is impacting which item?</text>
+
+    <rect x="220" y="336" width="258" height="72" rx="10" fill="#f0fdf4" stroke="#bbf7d0"/>
+    <text x="232" y="356" fill="#166534" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700">Resource-to-Item Impact (139ms)</text>
+    <text x="232" y="374" fill="#15803d" font-family="Segoe UI, Arial, sans-serif" font-size="10">• Item 100000002014 — Unmet: 6,472</text>
+    <text x="232" y="390" fill="#15803d" font-family="Segoe UI, Arial, sans-serif" font-size="10">• Context carried automatically across turns</text>
+
+    <!-- Composer -->
+    <rect x="220" y="424" width="258" height="38" rx="10" fill="#ffffff" stroke="#cbd9e8"/>
+    <text x="234" y="447" fill="#64748b" font-family="Segoe UI, Arial, sans-serif" font-size="10.5">Ask about demand, BOMs, capacity…</text>
+    <rect x="424" y="430" width="46" height="26" rx="7" fill="#0068B5"/>
+    <text x="447" y="447" text-anchor="middle" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="10" font-weight="700">Send</text>
+  </g>
+
+  <!-- Feature Card 2: Visual 5-Gate Validation Dashboard -->
+  <g filter="url(#sh)">
+    <rect x="510" y="88" width="286" height="392" rx="12" fill="#ffffff" stroke="#dbe5f0"/>
+    <text x="526" y="116" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="800">5-Gate Validation Dashboard</text>
+
+    <!-- SVG Donut Preview -->
+    <rect x="526" y="132" width="254" height="92" rx="10" fill="#fffbeb" stroke="#fde68a"/>
+    <circle cx="568" cy="178" r="28" fill="none" stroke="#e2e8f0" stroke-width="7"/>
+    <circle cx="568" cy="178" r="28" fill="none" stroke="#d97706" stroke-width="7" stroke-dasharray="128 176" stroke-linecap="round" transform="rotate(-90 568 178)"/>
+    <text x="568" y="183" text-anchor="middle" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="800">72%</text>
+    <rect x="610" y="144" width="118" height="20" rx="10" fill="#fef3c7"/>
+    <text x="669" y="158" text-anchor="middle" fill="#92400e" font-family="Segoe UI, Arial, sans-serif" font-size="9.5" font-weight="800">CONDITIONAL PASS</text>
+    <text x="610" y="180" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="11" font-weight="700">BOM Traversal Integrity</text>
+    <text x="610" y="198" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="9.5">2 High • 1 Medium • 202ms</text>
+
+    <!-- Severity Distribution Bar -->
+    <rect x="526" y="236" width="166" height="22" rx="5" fill="#ea580c"/>
+    <text x="609" y="251" text-anchor="middle" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="9.5" font-weight="700">High (2)</text>
+    <rect x="694" y="236" width="86" height="22" rx="5" fill="#d97706"/>
+    <text x="737" y="251" text-anchor="middle" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="9.5" font-weight="700">Medium (1)</text>
+
+    <!-- Flagged Table Preview -->
+    <rect x="526" y="270" width="254" height="140" rx="10" fill="#f7f9fc" stroke="#dbe5f0"/>
+    <text x="538" y="290" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700">Flagged BOM &amp; Rule Checks</text>
+    <text x="538" y="314" fill="#9a3412" font-family="Segoe UI, Arial, sans-serif" font-size="10" font-weight="700">! Missing SKU at BOM Loc — 8</text>
+    <text x="538" y="336" fill="#9a3412" font-family="Segoe UI, Arial, sans-serif" font-size="10" font-weight="700">! Missing Prod Method — 3</text>
+    <text x="538" y="358" fill="#92400e" font-family="Segoe UI, Arial, sans-serif" font-size="10" font-weight="700">! Unsourceable Leaf — 7</text>
+    <text x="538" y="382" fill="#166534" font-family="Segoe UI, Arial, sans-serif" font-size="10" font-weight="700">✓ Circular Cycles &amp; DrawQty — 0</text>
+
+    <!-- Export Actions -->
+    <rect x="526" y="426" width="122" height="32" rx="8" fill="#0068B5"/>
+    <text x="587" y="446" text-anchor="middle" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="10" font-weight="700">Download HTML</text>
+    <rect x="656" y="426" width="124" height="32" rx="8" fill="#f7f9fc" stroke="#cbd9e8"/>
+    <text x="718" y="446" text-anchor="middle" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="10" font-weight="700">Send as Email</text>
+  </g>
+
+  <!-- Feature Card 3: Interactive Knowledge Graph & Root Cause -->
+  <g filter="url(#sh)">
+    <rect x="812" y="88" width="288" height="392" rx="12" fill="#ffffff" stroke="#dbe5f0"/>
+    <text x="828" y="116" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="800">Knowledge Graph &amp; Root Cause</text>
+
+    <!-- KPI Chips -->
+    <rect x="828" y="132" width="122" height="44" rx="8" fill="#fef2f2" stroke="#fecaca"/>
+    <text x="840" y="149" fill="#991b1b" font-family="Segoe UI, Arial, sans-serif" font-size="9.5" font-weight="700">UNMET DEMAND</text>
+    <text x="840" y="168" fill="#dc2626" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="800">23,716</text>
+
+    <rect x="960" y="132" width="124" height="44" rx="8" fill="#fffbeb" stroke="#fde68a"/>
+    <text x="972" y="149" fill="#92400e" font-family="Segoe UI, Arial, sans-serif" font-size="9.5" font-weight="700">FILL RATE</text>
+    <text x="972" y="168" fill="#d97706" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="800">12.3%</text>
+
+    <!-- Mini Lineage Flow -->
+    <rect x="828" y="188" width="256" height="170" rx="10" fill="#f7f9fc" stroke="#dbe5f0"/>
+    <text x="840" y="208" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="9.5" font-weight="800">RESOURCES  →  METHODS  →  DEMAND</text>
+
+    <rect x="840" y="222" width="70" height="44" rx="8" fill="#ffffff" stroke="#dc2626" stroke-width="1.6"/>
+    <circle cx="850" cy="234" r="4" fill="#dc2626"/>
+    <text x="858" y="238" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="9" font-weight="700">RES_FOV</text>
+    <text x="848" y="254" fill="#dc2626" font-family="Segoe UI, Arial, sans-serif" font-size="8.5" font-weight="700">Capacity!</text>
+
+    <path d="M 910 244 C 924 244, 924 268, 938 268" fill="none" stroke="#0068B5" stroke-width="2"/>
+
+    <rect x="938" y="246" width="64" height="44" rx="8" fill="#ffffff" stroke="#0068B5" stroke-width="1.5"/>
+    <circle cx="948" cy="258" r="4" fill="#16a34a"/>
+    <text x="956" y="262" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="9" font-weight="700">PM_314</text>
+    <text x="946" y="278" fill="#4a647d" font-family="Segoe UI, Arial, sans-serif" font-size="8.5">Make</text>
+
+    <path d="M 1002 268 C 1014 268, 1014 294, 1022 294" fill="none" stroke="#0068B5" stroke-width="2"/>
+
+    <rect x="1022" y="274" width="54" height="58" rx="8" fill="#ffffff" stroke="#d97706" stroke-width="1.6"/>
+    <circle cx="1032" cy="286" r="4" fill="#d97706"/>
+    <text x="1030" y="304" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="8.5" font-weight="700">2000-280</text>
+    <text x="1030" y="320" fill="#92400e" font-family="Segoe UI, Arial, sans-serif" font-size="8">Unmet</text>
+
+    <!-- Drill-Through Buttons -->
+    <rect x="828" y="374" width="256" height="36" rx="8" fill="#0068B5"/>
+    <text x="956" y="396" text-anchor="middle" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700">Analyze Root Cause (10 Question Modes)</text>
+
+    <rect x="828" y="420" width="256" height="36" rx="8" fill="#f7f9fc" stroke="#cbd9e8"/>
+    <text x="956" y="442" text-anchor="middle" fill="#0f253c" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700">Ask Follow-Up in Chat Assistant</text>
+  </g>
+</svg>
