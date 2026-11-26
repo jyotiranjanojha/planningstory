@@ -4,12 +4,22 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        HTTP_PROXY: http://proxy-dmz.intel.com:912
+        HTTPS_PROXY: http://proxy-dmz.intel.com:912
+        NO_PROXY: localhost,127.0.0.0/8,10.0.0.0/8,.intel.com
     container_name: planningstory
     ports:
       - "3000:3000"
     env_file:
       - .env
     environment:
+      http_proxy: http://proxy-dmz.intel.com:912
+      https_proxy: http://proxy-dmz.intel.com:912
+      no_proxy: localhost,127.0.0.0/8,10.0.0.0/8,.intel.com
+      HTTP_PROXY: http://proxy-dmz.intel.com:912
+      HTTPS_PROXY: http://proxy-dmz.intel.com:912
+      NO_PROXY: localhost,127.0.0.0/8,10.0.0.0/8,.intel.com
       NODE_ENV: production
       PORT: 3000
       HOST: 0.0.0.0

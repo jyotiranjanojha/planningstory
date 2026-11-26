@@ -13,13 +13,19 @@ LABEL org.opencontainers.image.title="Intel Foundry Planning Story" \
       org.opencontainers.image.source="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${IMAGE_NAME}" \
       org.opencontainers.image.version="${APP_VERSION}"
 
-# Optional corporate proxy args (empty by default so builds work both inside & outside corporate proxy)
-ARG HTTP_PROXY=""
-ARG HTTPS_PROXY=""
+# Intel corporate proxy args (overrideable at build time via --build-arg)
+ARG HTTP_PROXY="http://proxy-dmz.intel.com:912"
+ARG HTTPS_PROXY="http://proxy-dmz.intel.com:912"
 ARG NO_PROXY="localhost,127.0.0.0/8,10.0.0.0/8,.intel.com"
-ARG NPM_REGISTRY=""
+ARG NPM_REGISTRY="https://pixi.intel.com/"
 
-ENV NODE_ENV=production \
+ENV http_proxy="${HTTP_PROXY}" \
+    https_proxy="${HTTPS_PROXY}" \
+    no_proxy="${NO_PROXY}" \
+    HTTP_PROXY="${HTTP_PROXY}" \
+    HTTPS_PROXY="${HTTPS_PROXY}" \
+    NO_PROXY="${NO_PROXY}" \
+    NODE_ENV=production \
     PORT=3000 \
     HOST=0.0.0.0 \
     PYTHONUNBUFFERED=1 \

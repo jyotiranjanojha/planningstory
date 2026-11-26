@@ -30,8 +30,11 @@ docker login amr-registry-pre.caas.intel.com
 
 docker build \
   -f Dockerfile \
+  --build-arg HTTP_PROXY=http://proxy-dmz.intel.com:912 \
+  --build-arg HTTPS_PROXY=http://proxy-dmz.intel.com:912 \
+  --build-arg NO_PROXY=localhost,127.0.0.0/8,10.0.0.0/8,.intel.com \
   --build-arg NPM_REGISTRY=https://pixi.intel.com/ \
-  -t amr-registry-pre.caas.intel.com/if-pdh-ai-assist/planningstory:2.0.0 \
+  -t amr-registry-pre.caas.intel.com/if-pdh-ai-assist/planningstory:2.1.0 \
   -t amr-registry-pre.caas.intel.com/if-pdh-ai-assist/planningstory:latest \
   .
 
