@@ -1,17 +1,25 @@
-name: Push Docker Image to Harbor
+name: Build and Push to Harbor
 
 on:
   push:
     branches:
-      - main  # Triggers the workflow when code is pushed to the main branch
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Optional custom tag (e.g. 2.0.1)'
+        required: false
+        default: ''
 
 permissions:
   contents: read
 
 env:
-  HARBOR_REGISTRY: amr-registry-pre.caas.intel.com       # Replace with your Harbor URL
-  HARBOR_PROJECT: if-pdh-ai-assist           # Replace with your Harbor project name
-  IMAGE_NAME: ifsp-webapp                    # Replace with your desired image name
+  HARBOR_REGISTRY: amr-registry-pre.caas.intel.com
+  HARBOR_PROJECT: if-pdh-ai-assist
+  IMAGE_NAME: planningstory
 
 jobs:
   build-and-push:
@@ -26,19 +34,58 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Pre-flight JS syntax check
+        run: |
+          node --check src/app.js
+          node --check src/services/pythonProxy.js
+          node --check src/routes/health.js
+          node --check webapp/app/static/app.js
+
       - name: Validate Harbor credentials
         run: |
           if [ -z "${HARBOR_USERNAME}" ] || [ -z "${HARBOR_PASSWORD}" ]; then
-            echo "HARBOR_USERNAME and HARBOR_PASSWORD repository secrets must be configured for the build-and-push workflow."
+            echo "HARBOR_USERNAME and HARBOR_PASSWORD repository secrets must be configured."
             exit 1
           fi
 
       - name: Log in to Harbor
         run: |
-          echo "${HARBOR_PASSWORD}" | docker login "${{ env.HARBOR_REGISTRY }}" --username "${HARBOR_USERNAME}" --password-stdin
+          echo "${HARBOR_PASSWORD}" | docker login "${HARBOR_REGISTRY}" --username "${HARBOR_USERNAME}" --password-stdin
 
-      - name: Build and push Docker image
+      - name: Compute image tags
+        id: tags
         run: |
-          docker build -f webapp/Dockerfile -t "${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/${{ env.IMAGE_NAME }}:latest" -t "${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/${{ env.IMAGE_NAME }}:${{ github.sha }}" .
-          docker push "${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/${{ env.IMAGE_NAME }}:latest"
-          docker push "${{ env.HARBOR_REGISTRY }}/${{ env.HARBOR_PROJECT }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          SHORT_SHA="${GITHUB_SHA::8}"
+          FULL_IMAGE="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${IMAGE_NAME}"
+          TAGS="-t ${FULL_IMAGE}:latest -t ${FULL_IMAGE}:${SHORT_SHA}"
+          PUSH_LIST="${FULL_IMAGE}:latest ${FULL_IMAGE}:${SHORT_SHA}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            GIT_TAG="${GITHUB_REF#refs/tags/}"
+            TAGS="${TAGS} -t ${FULL_IMAGE}:${GIT_TAG}"
+            PUSH_LIST="${PUSH_LIST} ${FULL_IMAGE}:${GIT_TAG}"
+          fi
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            CUSTOM_TAG="${{ github.event.inputs.image_tag }}"
+            TAGS="${TAGS} -t ${FULL_IMAGE}:${CUSTOM_TAG}"
+            PUSH_LIST="${PUSH_LIST} ${FULL_IMAGE}:${CUSTOM_TAG}"
+          fi
+          echo "build_tags=${TAGS}" >> "$GITHUB_OUTPUT"
+          echo "push_list=${PUSH_LIST}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Docker image (single-origin Node Gateway + Python FastAPI)
+        run: |
+          docker build \
+            -f Dockerfile \
+            --build-arg HTTP_PROXY="${HTTP_PROXY:-}" \
+            --build-arg HTTPS_PROXY="${HTTPS_PROXY:-}" \
+            --build-arg NO_PROXY="${NO_PROXY:-localhost,127.0.0.0/8,10.0.0.0/8,.intel.com}" \
+            --build-arg NPM_REGISTRY="${NPM_REGISTRY:-https://pixi.intel.com/}" \
+            ${{ steps.tags.outputs.build_tags }} \
+            .
+
+      - name: Push images to Harbor
+        run: |
+          for IMG in ${{ steps.tags.outputs.push_list }}; do
+            echo "Pushing ${IMG}"
+            docker push "${IMG}"
+          done

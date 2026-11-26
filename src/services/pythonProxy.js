@@ -1,12 +1,26 @@
 const http = require('http');
 const https = require('https');
-const { pythonBaseUrl, backendPortCandidates } = require('../config/env');
+const { backendPortCandidates } = require('../config/env');
+
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 32 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 32 });
+const DEFAULT_PROXY_TIMEOUT_MS = Number(process.env.PROXY_TIMEOUT_MS || 120000);
+
+function normalizeLoopback(urlStr) {
+  const clean = String(urlStr || '').trim().replace(/\/+$/, '');
+  if (clean.startsWith('http://localhost')) {
+    return clean.replace('http://localhost', 'http://127.0.0.1');
+  }
+  if (clean.startsWith('https://localhost')) {
+    return clean.replace('https://localhost', 'https://127.0.0.1');
+  }
+  return clean;
+}
 
 function resolvePythonBaseUrl() {
   if (process.env.PYTHON_BASE_URL) {
-    // Defensive trim: `set VAR=value && next` in cmd.exe (unquoted) captures a trailing
-    // space into the value, which breaks new URL(base + path) concatenation downstream.
-    return process.env.PYTHON_BASE_URL.trim();
+    // Defensive trim + IPv4 normalization: avoids cmd.exe trailing spaces and 2s Windows ::1 delays.
+    return normalizeLoopback(process.env.PYTHON_BASE_URL);
   }
 
   return new Promise((resolve) => {
@@ -15,7 +29,7 @@ function resolvePythonBaseUrl() {
 
     const probe = () => {
       if (index >= candidates.length) {
-        resolve('http://127.0.0.1:8000');
+        resolve('http://127.0.0.1:8001');
         return;
       }
 
@@ -39,8 +53,8 @@ function resolvePythonBaseUrl() {
               resolve(target);
               return;
             }
-          } catch (error) {
-            // Ignore malformed payloads; they are not valid backend health responses.
+          } catch (_error) {
+            // Ignore malformed payloads; continue probing.
           }
           probe();
         });
@@ -57,17 +71,12 @@ function resolvePythonBaseUrl() {
   });
 }
 
-function isJsonResponse(payload) {
-  return payload && typeof payload === 'object' && !Buffer.isBuffer(payload);
-}
-
-function buildFallbackPayload(req, status = 'legacy_stub') {
+function buildFallbackPayload(req, status = 'backend_unavailable') {
   return {
     status,
     service: 'ifspstory-node',
     path: req.originalUrl,
-    message: 'Node/Express API layer is active. The legacy Python IFSP service is not running, so this request is using compatibility fallback behavior.',
-    api_contract: 'IFSP legacy compatibility',
+    message: 'Planning backend is currently unreachable. Please ensure the Python FastAPI service is running.',
     timestamp: new Date().toISOString(),
   };
 }
@@ -75,8 +84,10 @@ function buildFallbackPayload(req, status = 'legacy_stub') {
 const FORWARDED_HEADER_NAMES = [
   'authorization',
   'cookie',
+  'accept',
   'x-api-key',
   'x-session-id',
+  'x-request-id',
   'x-forwarded-for',
   'x-forwarded-email',
   'x-user-email',
@@ -86,10 +97,12 @@ const FORWARDED_HEADER_NAMES = [
 ];
 
 function buildForwardHeaders(req, payload) {
-  const headers = {
-    'Content-Type': (req && req.headers && req.headers['content-type']) || 'application/json',
-    'Content-Length': Buffer.byteLength(payload || ''),
-  };
+  const headers = {};
+  const hasBody = payload !== undefined && payload !== null && payload !== '' && req && req.method !== 'GET' && req.method !== 'HEAD';
+  if (hasBody) {
+    headers['Content-Type'] = (req.headers && req.headers['content-type']) || 'application/json';
+    headers['Content-Length'] = Buffer.byteLength(payload);
+  }
   if (req && req.headers) {
     for (const name of FORWARDED_HEADER_NAMES) {
       if (req.headers[name] !== undefined) {
@@ -100,11 +113,13 @@ function buildForwardHeaders(req, payload) {
   return headers;
 }
 
-function doRequest(targetUrl, method, body, req = null) {
+function doRequest(targetUrl, method, body, req = null, timeoutMs = DEFAULT_PROXY_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
-    const client = targetUrl.startsWith('https') ? https : http;
+    const isHttps = targetUrl.startsWith('https');
+    const client = isHttps ? https : http;
     const url = new URL(targetUrl);
-    const payload = body && typeof body !== 'string' ? JSON.stringify(body) : body || '';
+    const hasBody = method !== 'GET' && method !== 'HEAD' && body !== undefined && body !== null && Object.keys(body || {}).length > 0;
+    const payload = hasBody ? (typeof body === 'string' ? body : JSON.stringify(body)) : '';
 
     const request = client.request(
       {
@@ -112,31 +127,43 @@ function doRequest(targetUrl, method, body, req = null) {
         port: url.port,
         path: `${url.pathname}${url.search}`,
         method,
+        agent: isHttps ? httpsAgent : httpAgent,
         headers: buildForwardHeaders(req, payload),
       },
       (response) => {
-        let raw = '';
+        const chunks = [];
         response.on('data', (chunk) => {
-          raw += chunk;
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
         });
         response.on('end', () => {
-          try {
-            const parsed = raw ? JSON.parse(raw) : {};
-            resolve({
-              status: response.statusCode || 200,
-              payload: parsed,
-              raw,
-            });
-          } catch (error) {
-            resolve({
-              status: response.statusCode || 200,
-              payload: raw,
-              raw,
-            });
+          const buffer = Buffer.concat(chunks);
+          const contentType = String(response.headers['content-type'] || '');
+          const isJson = contentType.includes('application/json');
+          let parsed = null;
+          if (isJson) {
+            try {
+              parsed = buffer.length ? JSON.parse(buffer.toString('utf8')) : {};
+            } catch (_err) {
+              parsed = null;
+            }
           }
+          resolve({
+            status: response.statusCode || 200,
+            headers: response.headers,
+            contentType,
+            isJson: isJson && parsed !== null,
+            payload: parsed,
+            buffer,
+          });
         });
       },
     );
+
+    request.setTimeout(timeoutMs, () => {
+      const err = new Error(`Upstream request timed out after ${timeoutMs}ms`);
+      err.code = 'ETIMEDOUT';
+      request.destroy(err);
+    });
 
     request.on('error', reject);
     if (payload) {
@@ -147,47 +174,59 @@ function doRequest(targetUrl, method, body, req = null) {
 }
 
 async function proxyToPython(req, res) {
+  const startedAt = Date.now();
   try {
     const activeBaseUrl = await resolvePythonBaseUrl();
     const targetUrl = `${activeBaseUrl}${req.originalUrl}`;
     const response = await doRequest(targetUrl, req.method, req.body, req);
+    const elapsedMs = Date.now() - startedAt;
 
-    if (response.status >= 400) {
-      return res.status(response.status).json({
-        ...buildFallbackPayload(req, 'proxy_error'),
-        python_status: response.status,
-        python_response: response.payload,
-      });
+    res.setHeader('X-Proxied-By', 'ifspstory-node');
+    res.setHeader('X-Upstream-Ms', String(elapsedMs));
+
+    // Preserve transparent download / redirect / cache headers when present
+    for (const h of ['content-disposition', 'cache-control', 'location', 'etag']) {
+      if (response.headers[h]) {
+        res.setHeader(h, response.headers[h]);
+      }
     }
 
-    if (isJsonResponse(response.payload)) {
+    if (response.isJson) {
       return res.status(response.status).json(response.payload);
     }
 
-    return res.status(response.status).json({
-      data: response.payload,
-      service: 'ifspstory-node',
-      proxied_to: activeBaseUrl,
-    });
+    if (response.contentType) {
+      res.setHeader('Content-Type', response.contentType);
+    }
+    return res.status(response.status).send(response.buffer);
   } catch (error) {
-    return res.status(503).json(buildFallbackPayload(req, 'legacy_python_unavailable'));
+    if (error && error.code === 'ETIMEDOUT') {
+      return res.status(504).json({
+        status: 'gateway_timeout',
+        service: 'ifspstory-node',
+        path: req.originalUrl,
+        message: 'Planning backend took too long to respond. Please retry or narrow your scope.',
+        timestamp: new Date().toISOString(),
+      });
+    }
+    return res.status(503).json(buildFallbackPayload(req, 'backend_unavailable'));
   }
 }
 
 // Pipes the upstream response through unbuffered — required for SSE (text/event-stream)
-// endpoints like /api/chat/stream, where doRequest()'s full-body buffering would defeat
-// streaming (no incremental tokens, no keepalive pings reaching the browser).
+// endpoints like /api/chat/stream, where full-body buffering would block incremental tokens.
 async function proxyStreamToPython(req, res) {
   let activeBaseUrl;
   try {
     activeBaseUrl = await resolvePythonBaseUrl();
-  } catch (error) {
-    return res.status(503).json(buildFallbackPayload(req, 'legacy_python_unavailable'));
+  } catch (_error) {
+    return res.status(503).json(buildFallbackPayload(req, 'backend_unavailable'));
   }
 
   const targetUrl = `${activeBaseUrl}${req.originalUrl}`;
   const url = new URL(targetUrl);
-  const client = url.protocol === 'https:' ? https : http;
+  const isHttps = url.protocol === 'https:';
+  const client = isHttps ? https : http;
   const payload = req.body && typeof req.body !== 'string' ? JSON.stringify(req.body) : req.body || '';
 
   const upstreamReq = client.request(
@@ -196,6 +235,7 @@ async function proxyStreamToPython(req, res) {
       port: url.port,
       path: `${url.pathname}${url.search}`,
       method: req.method,
+      agent: isHttps ? httpsAgent : httpAgent,
       headers: buildForwardHeaders(req, payload),
     },
     (upstreamRes) => {
@@ -203,7 +243,8 @@ async function proxyStreamToPython(req, res) {
       res.setHeader('Content-Type', upstreamRes.headers['content-type'] || 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache, no-transform');
       res.setHeader('Connection', 'keep-alive');
-      res.setHeader('X-Accel-Buffering', 'no'); // disable nginx buffering if fronted by one
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.setHeader('X-Proxied-By', 'ifspstory-node');
       if (typeof res.flushHeaders === 'function') {
         res.flushHeaders();
       }
@@ -221,7 +262,7 @@ async function proxyStreamToPython(req, res) {
 
   upstreamReq.on('error', () => {
     if (!res.headersSent) {
-      return res.status(503).json(buildFallbackPayload(req, 'legacy_python_unavailable'));
+      return res.status(503).json(buildFallbackPayload(req, 'backend_unavailable'));
     }
     return res.end();
   });
@@ -234,4 +275,4 @@ async function proxyStreamToPython(req, res) {
   upstreamReq.end();
 }
 
-module.exports = { proxyToPython, proxyStreamToPython, buildFallbackPayload, resolvePythonBaseUrl };
+module.exports = { proxyToPython, proxyStreamToPython, buildFallbackPayload, resolvePythonBaseUrl, normalizeLoopback };

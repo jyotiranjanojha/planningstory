@@ -7,6 +7,7 @@ const healthRoutes = require('./routes/health');
 const planningRoutes = require('./routes/planning');
 const analysisRoutes = require('./routes/analysis');
 const chatRoutes = require('./routes/chat');
+const { proxyToPython } = require('./services/pythonProxy');
 const {
   appName,
   logLevel,
@@ -283,20 +284,21 @@ app.get('/auth/callback', async (req, res) => {
       secure: process.env.NODE_ENV === 'production',
     });
 
-    const uiUrl = new URL(`${pythonBaseUrl.replace(/\/$/, '')}/`);
-
-    console.log('[SSO] Azure auth success. Redirecting to Python UI.');
-    return res.redirect(uiUrl.toString());
+    console.log('[SSO] Azure auth success. Redirecting to same-origin UI.');
+    return res.redirect('/');
   } catch (err) {
     console.error('[SSO] Auth callback error:', err);
     return res.status(500).send('Authentication failed');
   }
 });
 
+app.get('/favicon.ico', proxyToPython);
+app.get('/static/*', proxyToPython);
+
 app.get('/', async (req, res) => {
   if (!ensureAzureConfig()) {
-    console.error('[SSO] Missing Azure auth config on root gate');
-    return res.status(500).send('Authentication is not configured for this environment. Set AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_REDIRECT_URI, and AZURE_GROUP_IDS.');
+    // Local / non-SSO mode: serve the proxied UI seamlessly on the same origin.
+    return proxyToPython(req, res);
   }
 
   const authHeader = req.headers.authorization;
@@ -365,9 +367,8 @@ app.get('/', async (req, res) => {
       }
     }
 
-    const uiUrl = `${pythonBaseUrl.replace(/\/$/, '')}/`;
-    console.log('[SSO] Access granted; redirecting to UI:', uiUrl);
-    return res.redirect(uiUrl);
+    console.log('[SSO] Access granted; serving proxied UI on same origin.');
+    return proxyToPython(req, res);
   } catch (err) {
     console.error('[SSO] Auth gate error:', err);
     return res.status(401).send('Authentication failed');

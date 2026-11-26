@@ -21,6 +21,7 @@ npm-debug.log*
 coverage/
 
 # Non-runtime directories & generated artifacts
+deploy/
 docs/
 notebooks/
 tests/

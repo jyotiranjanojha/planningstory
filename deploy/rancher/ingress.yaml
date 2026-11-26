@@ -1,0 +1,34 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: planningstory
+  namespace: planningstory
+  labels:
+    app: planningstory
+  annotations:
+    # Critical for unbuffered SSE streaming (/api/chat/stream) through Rancher NGINX Ingress
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-body-size: "16m"
+    # Sticky sessions keep multi-turn chat & Entra cookies consistent across replicas
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/session-cookie-name: "planningstory_route"
+    nginx.ingress.kubernetes.io/session-cookie-samesite: "Lax"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - planningstory.intel.com
+      secretName: planningstory-tls
+  rules:
+    - host: planningstory.intel.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: planningstory
+                port:
+                  name: http

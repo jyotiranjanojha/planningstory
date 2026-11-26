@@ -1,23 +1,24 @@
-version: '3.9'
-
 services:
-  ifspstory:
-    image: amr-registry-pre.caas.intel.com/if-pdh-ai-assist/ifspstory:latest
+  planningstory:
+    image: amr-registry-pre.caas.intel.com/if-pdh-ai-assist/planningstory:latest
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: ifspstory
+    container_name: planningstory
     ports:
       - "3000:3000"
-      - "8001:8001"
     env_file:
       - .env
     environment:
       NODE_ENV: production
       PORT: 3000
       HOST: 0.0.0.0
-      BACKEND_HOST: 0.0.0.0
+      BACKEND_HOST: 127.0.0.1
       BACKEND_PORT: 8001
       PYTHON_BASE_URL: http://127.0.0.1:8001
-      SEMANTIC_MODE: legacy
+      V2_CORE_ENABLED: "true"
+      LLM_PROVIDER: ollama
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
     restart: unless-stopped

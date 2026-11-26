@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: planningstory-config
+  namespace: planningstory
+  labels:
+    app: planningstory
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  HOST: "0.0.0.0"
+  BACKEND_HOST: "127.0.0.1"
+  BACKEND_PORT: "8001"
+  PYTHON_BASE_URL: "http://127.0.0.1:8001"
+  PROXY_TIMEOUT_MS: "120000"
+  V2_CORE_ENABLED: "true"
+  LLM_PROVIDER: "ollama"
+  OLLAMA_BASE_URL: "http://ollama.planningstory.svc.cluster.local:11434"
+  OLLAMA_MODEL: "qwen2.5-coder:latest"
+  OLLAMA_VISION_MODEL: "gemma3:latest"
+  JUDGE_LLM_ENABLED: "false"
+  SEMANTIC_MODE: "legacy"
+  AZURE_REQUIRE_GROUP_CHECK: "false"
+  # Update to your Rancher Ingress HTTPS URL:
+  AZURE_REDIRECT_URI: "https://planningstory.intel.com/auth/callback"

@@ -1,0 +1,94 @@
+# Enterprise Deployment Guide — Harbor + Rancher (Kubernetes)
+
+This guide covers building, pushing, and deploying **Planning Story (`v2.0.0`)** using **Harbor** (container registry) and **Rancher** (Kubernetes).
+
+## Architecture in Production
+
+- **Single-Origin Pod (`port 3000`):** The Node.js/Express Gateway listens on `0.0.0.0:3000`, handles Microsoft Entra ID (Azure AD) SSO, and proxies `/`, `/static/*`, and `/api/*` (including unbuffered SSE `/api/chat/stream`) to the internal Python FastAPI + DuckDB V2 backend on `127.0.0.1:8001`.
+- **Non-Root Security:** Container runs as `UID 10001` (`appuser`), `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`.
+- **Probes:**
+  - `startupProbe` & `readinessProbe`: `GET /api/ready` (verifies BOTH Node Gateway and Python/DuckDB V2 views are healthy).
+  - `livenessProbe`: `GET /api/health`.
+- **Ingress SSE Support:** `deploy/rancher/ingress.yaml` disables proxy buffering (`proxy-buffering: "off"`), sets 300s stream timeouts, and enables cookie session affinity across replicas.
+
+---
+
+## Step 1 — Build & Push Image to Harbor
+
+### Option A: Automated via GitHub Actions
+Push to `main` or push a version tag (`git tag v2.0.1 && git push origin v2.0.1`).  
+`.github/workflows/push-to-harbor.yml` runs JS syntax checks, builds root `Dockerfile`, and pushes:
+- `amr-registry-pre.caas.intel.com/if-pdh-ai-assist/planningstory:latest`
+- `amr-registry-pre.caas.intel.com/if-pdh-ai-assist/planningstory:<short-sha>`
+- `amr-registry-pre.caas.intel.com/if-pdh-ai-assist/planningstory:<git-tag>`
+
+Configure repository secrets: `HARBOR_USERNAME`, `HARBOR_PASSWORD`.
+
+### Option B: Manual Build & Push
+```bash
+docker login amr-registry-pre.caas.intel.com
+
+docker build \
+  -f Dockerfile \
+  --build-arg NPM_REGISTRY=https://pixi.intel.com/ \
+  -t amr-registry-pre.caas.intel.com/if-pdh-ai-assist/planningstory:2.0.0 \
+  -t amr-registry-pre.caas.intel.com/if-pdh-ai-assist/planningstory:latest \
+  .
+
+docker push amr-registry-pre.caas.intel.com/if-pdh-ai-assist/planningstory:2.0.0
+docker push amr-registry-pre.caas.intel.com/if-pdh-ai-assist/planningstory:latest
+```
+
+---
+
+## Step 2 — Create Harbor Registry & App Secrets in Rancher
+
+1. **Create Namespace:**
+   ```bash
+   kubectl apply -f deploy/rancher/namespace.yaml
+   ```
+2. **Create Harbor `imagePullSecret` (`harbor-regcred`):**
+   ```bash
+   kubectl -n planningstory create secret docker-registry harbor-regcred \
+     --docker-server=amr-registry-pre.caas.intel.com \
+     --docker-username=<HARBOR_ROBOT_OR_USER> \
+     --docker-password=<HARBOR_PASSWORD>
+   ```
+3. **Create Runtime App Secrets (`planningstory-secrets`):**
+   *(Use `deploy/rancher/secret.example.yaml` as reference — never commit real secrets.)*
+   ```bash
+   kubectl -n planningstory create secret generic planningstory-secrets \
+     --from-literal=AZURE_TENANT_ID=<TENANT_ID> \
+     --from-literal=AZURE_CLIENT_ID=<CLIENT_ID> \
+     --from-literal=AZURE_CLIENT_SECRET=<CLIENT_SECRET> \
+     --from-literal=AZURE_GROUP_IDS=<GROUP_ID>
+   ```
+
+---
+
+## Step 3 — Update Hostname & Deploy in Rancher
+
+1. Update `planningstory.intel.com` and `OLLAMA_BASE_URL` in:
+   - `deploy/rancher/configmap.yaml` (`AZURE_REDIRECT_URI`, `OLLAMA_BASE_URL`)
+   - `deploy/rancher/ingress.yaml` (`hosts`, `tls.secretName`)
+2. Deploy via Kustomize (CLI or Rancher **Import YAML**):
+   ```bash
+   kubectl apply -k deploy/rancher/
+   kubectl -n planningstory rollout status deployment/planningstory
+   ```
+
+---
+
+## Step 4 — Post-Deploy Verification
+
+```bash
+# Verify pod readiness & single-origin health
+kubectl -n planningstory get pods,svc,ingress
+curl -fsS https://planningstory.intel.com/api/ready
+curl -fsS https://planningstory.intel.com/api/v2/health
+```
+
+### Rollback (if needed)
+```bash
+kubectl -n planningstory rollout undo deployment/planningstory
+```

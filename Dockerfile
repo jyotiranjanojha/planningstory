@@ -1,31 +1,39 @@
-# Production Dockerfile for the IFSP Story application
-# This deploys the real Python web UI plus the Node compatibility shell in one container.
-FROM amr-registry-pre.caas.intel.com/if-pdh-ai-assist/ifspstory:latest
+# Enterprise Production Dockerfile for Planning Story (IFSP V2)
+# Single-origin container: Node.js/Express Gateway (port 3000) + internal Python FastAPI/DuckDB backend (127.0.0.1:8001).
+ARG BASE_IMAGE=node:20-bookworm-slim
+FROM ${BASE_IMAGE}
 
-# Final image path used when this app is tagged and pushed to the Intel registry.
-ARG APP_IMAGE=amr-registry-pre.caas.intel.com/if-pdh-ai-assist/ifspstory:latest
-LABEL org.opencontainers.image.title="IFSP Story" \
-      org.opencontainers.image.source="amr-registry-pre.caas.intel.com/if-pdh-ai-assist/ifspstory" \
-      org.opencontainers.image.version="latest"
+ARG APP_VERSION=2.0.0
+ARG HARBOR_REGISTRY=amr-registry-pre.caas.intel.com
+ARG HARBOR_PROJECT=if-pdh-ai-assist
+ARG IMAGE_NAME=planningstory
 
-ENV http_proxy=http://proxy-dmz.intel.com:912 \
-    https_proxy=http://proxy-dmz.intel.com:912 \
-    no_proxy=localhost,127.0.0.0/8,10.0.0.0/8,.intel.com \
-    HTTP_PROXY=http://proxy-dmz.intel.com:912 \
-    HTTPS_PROXY=http://proxy-dmz.intel.com:912 \
-    NO_PROXY=localhost,127.0.0.0/8,10.0.0.0/8,.intel.com \
-    NODE_ENV=production \
+LABEL org.opencontainers.image.title="Intel Foundry Planning Story" \
+      org.opencontainers.image.description="Supply Planning AI Assistant (Node Gateway + FastAPI DuckDB V2 Core)" \
+      org.opencontainers.image.source="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${IMAGE_NAME}" \
+      org.opencontainers.image.version="${APP_VERSION}"
+
+# Optional corporate proxy args (empty by default so builds work both inside & outside corporate proxy)
+ARG HTTP_PROXY=""
+ARG HTTPS_PROXY=""
+ARG NO_PROXY="localhost,127.0.0.0/8,10.0.0.0/8,.intel.com"
+ARG NPM_REGISTRY=""
+
+ENV NODE_ENV=production \
     PORT=3000 \
     HOST=0.0.0.0 \
     PYTHONUNBUFFERED=1 \
-    SEMANTIC_MODE=legacy \
-    BACKEND_HOST=0.0.0.0 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    BACKEND_HOST=127.0.0.1 \
     BACKEND_PORT=8001 \
-    PYTHON_BASE_URL=http://127.0.0.1:8001
+    PYTHON_BASE_URL=http://127.0.0.1:8001 \
+    V2_CORE_ENABLED=true \
+    LLM_PROVIDER=ollama \
+    SEMANTIC_MODE=legacy
 
 WORKDIR /app
 
-# Install system dependencies required by Python + Node runtime
+# Install Python 3 runtime and minimal system tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
@@ -33,32 +41,41 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     bash \
     curl \
+    ca-certificates \
     procps \
     && rm -rf /var/lib/apt/lists/*
 
-# Use the Intel package registry for Node dependencies when needed
-RUN npm config set registry https://pixi.intel.com/
+# Create isolated Python venv inside /opt/venv (avoids Debian PEP 668 externally-managed errors)
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:${PATH}"
 
-# Copy Node package metadata first for efficient dependency caching
+# Install Node dependencies first for layer caching
 COPY package*.json ./
-RUN npm ci --no-fund --no-audit
+RUN if [ -n "${NPM_REGISTRY}" ]; then npm config set registry "${NPM_REGISTRY}"; fi \
+    && npm ci --omit=dev --no-fund --no-audit \
+    && npm cache clean --force
 
-# Install Python dependencies used by the actual IFSP planner app
+# Install Python dependencies
 COPY webapp/requirements.txt ./webapp/requirements.txt
-RUN python3 -m pip install --upgrade pip \
-    && python3 -m pip install --no-cache-dir -r ./webapp/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r ./webapp/requirements.txt
 
-# Copy the rest of the project
+# Copy application source
 COPY . .
 
-# Ensure startup scripts are executable
-RUN chmod +x ./start-services.sh ./healthcheck.sh
+# Create non-root enterprise user (UID 10001) and writable runtime directories for Rancher Pod Security
+RUN groupadd --gid 10001 appgroup \
+    && useradd --uid 10001 --gid 10001 --shell /bin/bash --no-create-home appuser \
+    && mkdir -p /app/data /app/logs /app/reports /app/.rag \
+    && chmod +x /app/start-services.sh /app/healthcheck.sh \
+    && chown -R 10001:10001 /app
 
-# Expose both the Node shell and the Python app UI
-EXPOSE 3000 8001
+USER 10001:10001
 
-# Healthcheck verifies the app is up and responding on both entry points.
-HEALTHCHECK --interval=30s --timeout=10s --start-period=25s --retries=5 \
-  CMD ["bash", "-lc", "curl -fsS http://127.0.0.1:8001/api/health >/dev/null && curl -fsS http://127.0.0.1:3000/api/health >/dev/null"]
+# Only expose the single-origin Node Gateway externally; Python stays internal on 127.0.0.1:8001
+EXPOSE 3000
 
-CMD ["./start-services.sh"]
+HEALTHCHECK --interval=30s --timeout=10s --start-period=45s --retries=3 \
+  CMD ["/app/healthcheck.sh"]
+
+CMD ["/app/start-services.sh"]
