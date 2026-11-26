@@ -11,17 +11,18 @@
 
 <p align="center">
   <a href="https://github.com/jyotiranjanojha/planningstory/actions/workflows/push-to-harbor.yml">
-    <img src="https://img.shields.io/badge/Deploy-Harbor%20%2B%20Rancher-0068B5?logo=kubernetes&logoColor=white" alt="Harbor + Rancher" />
+    <img src="https://img.shields.io/badge/Deploy-Harbor_%2B_Rancher-0068B5?logo=kubernetes&logoColor=white" alt="Harbor + Rancher" />
   </a>
-  <img src="https://img.shields.io/badge/Engine-DuckDB%20V2%20(40%20Views)-F59E0B?logo=duckdb&logoColor=black" alt="DuckDB V2" />
-  <img src="https://img.shields.io/badge/Gateway-Node.js%2020%20%2B%20Express-16A34A?logo=nodedotjs&logoColor=white" alt="Node.js Gateway" />
-  <img src="https://img.shields.io/badge/Backend-Python%203.11%2B%20%2B%20FastAPI-009688?logo=fastapi&logoColor=white" alt="FastAPI" />
-  <img src="https://img.shields.io/badge/LLM-Ollama%20%7C%20OpenAI%20%7C%20Azure%20%7C%20Anthropic-7C3AED" alt="Multi-LLM" />
-  <img src="https://img.shields.io/badge/Auth-Microsoft%20Entra%20ID%20SSO-0284C7?logo=microsoftazure&logoColor=white" alt="Entra SSO" />
+  <img src="https://img.shields.io/badge/Engine-DuckDB_V2_40_Views-F59E0B?logo=duckdb&logoColor=black" alt="DuckDB V2" />
+  <img src="https://img.shields.io/badge/Gateway-Node.js_20_%2B_Express-16A34A?logo=nodedotjs&logoColor=white" alt="Node.js Gateway" />
+  <img src="https://img.shields.io/badge/Backend-Python_3.11_%2B_FastAPI-009688?logo=fastapi&logoColor=white" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/LLM-Ollama_%7C_OpenAI_%7C_Azure_%7C_Anthropic-7C3AED" alt="Multi-LLM" />
+  <img src="https://img.shields.io/badge/Auth-Microsoft_Entra_ID_SSO-0284C7" alt="Entra SSO" />
 </p>
 
 <p align="center">
   <a href="#-workspace-preview">Workspace Preview</a> •
+  <a href="#-technology-stack">Tech Stack</a> •
   <a href="#-architecture">Architecture</a> •
   <a href="#-9-specialist-v2-agents">V2 Agents</a> •
   <a href="#-ui-modules">UI Modules</a> •
@@ -34,9 +35,7 @@
 
 ## ✨ Workspace Preview
 
-<p align="center">
-  <img src="docs/images/ui-workspace-showcase.svg" alt="Planning Story v2.1 Enterprise Workspace" width="100%" />
-</p>
+![Planning Story v2.1 Enterprise Workspace](docs/images/ui-workspace-showcase.svg)
 
 **Planning Story** turns complex **Blue Yonder ESP (`by_input/` + `by_output/`)** planning snapshots into instant, grounded, decision-ready answers in **40–400ms** — eliminating manual CSV joins, spreadsheet pivots, and black-box solver guesswork.
 
@@ -50,11 +49,41 @@
 
 ---
 
+## 🛠 Technology Stack
+
+<p>
+  <img src="https://img.shields.io/badge/Node.js_20-339933?logo=nodedotjs&logoColor=white" alt="Node.js" />
+  <img src="https://img.shields.io/badge/Express-000000?logo=express&logoColor=white" alt="Express" />
+  <img src="https://img.shields.io/badge/Python_3.11+-3776AB?logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/DuckDB-FFF000?logo=duckdb&logoColor=black" alt="DuckDB" />
+  <img src="https://img.shields.io/badge/Pandas-150458?logo=pandas&logoColor=white" alt="Pandas" />
+  <img src="https://img.shields.io/badge/Pydantic_v2-E92063?logo=pydantic&logoColor=white" alt="Pydantic" />
+  <img src="https://img.shields.io/badge/Ollama-111111?logo=ollama&logoColor=white" alt="Ollama" />
+  <img src="https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white" alt="Docker" />
+  <img src="https://img.shields.io/badge/Kubernetes_Rancher-326CE5?logo=kubernetes&logoColor=white" alt="Kubernetes" />
+  <img src="https://img.shields.io/badge/Harbor-60B932?logo=harbor&logoColor=white" alt="Harbor" />
+  <img src="https://img.shields.io/badge/pytest-0A9EDC?logo=pytest&logoColor=white" alt="pytest" />
+</p>
+
+| Layer | Technologies | Role in Planning Story |
+|---|---|---|
+| **Frontend UI** | Jinja2 HTML5, Vanilla ES6+ JavaScript, Modern CSS3, Inline SVG | Single-page enterprise workspace: Gemini-style SSE Chat, SVG Validation Donut & Charts, Interactive Bezier Knowledge Graph, and Root Cause Analyzer |
+| **Public Gateway & Auth** | Node.js 20, Express, `cookie-parser`, `morgan`, Microsoft Entra ID (OAuth2) | Single-origin HTTP/SSE reverse proxy (`:3000`), Entra SSO with `httpOnly` cookies + `oauth_state` CSRF guard, keep-alive socket pooling, `/api/ready` probe |
+| **Planning API Backend** | Python 3.11+, FastAPI, Uvicorn, Pydantic v2 | Internal REST + SSE streaming service (`127.0.0.1:8001`), typed request/response contracts, multi-turn `ConversationManager` |
+| **Analytical Data Engine** | **DuckDB** (40 live BY ESP views), Pandas, NumPy | Sub-second SQL analytics across all 22 `by_input/` and 18 `by_output/` CSV snapshots (with Snowflake adapter abstraction) |
+| **Multi-Agent Core** | Custom `PlanningCopilotV2` + 9 Specialist Agents, LangGraph | `<1ms` intent routing, stopword-safe entity/item-class/resource extraction, session follow-up memory, and deterministic evidence grounding |
+| **LLM & Narrative Layer** | **Ollama** (`qwen2.5-coder`, `gemma3` default), OpenAI, Azure OpenAI, Anthropic, OpenVINO | Unified `.env`-only LLM client (`UnifiedLLMClient`) for optional narrative summarization and vision/SQL workflows |
+| **RAG & Retrieval** | FAISS, Sentence-Transformers, OpenVINO (optional) | Hybrid document/CSV dense retrieval and semantic regression evaluation |
+| **Container & Registry** | Docker (non-root `UID 10001`), Docker Compose, **Harbor** | Reproducible single-origin production image with GitHub Actions automated build & push (`push-to-harbor.yml`) |
+| **Orchestration & Ingress** | **Rancher** / Kubernetes (`deploy/rancher/`), Kustomize, NGINX Ingress | 2-replica `RollingUpdate`, `startupProbe`/`readinessProbe`/`livenessProbe`, PVC persistence, TLS + unbuffered SSE Ingress |
+| **Testing & Quality** | `pytest`, `node --check`, Semantic Regression CI | Unit tests (`tests/test_v2_core.py`), JS syntax gates, and semantic accuracy benchmarks |
+
+---
+
 ## 🏛 Architecture
 
-<p align="center">
-  <img src="docs/images/architecture-overview.svg" alt="Planning Story V2 Enterprise Architecture" width="100%" />
-</p>
+![Planning Story V2 Enterprise Architecture](docs/images/architecture-overview.svg)
 
 ### Request & Multi-Agent Routing Flow
 
