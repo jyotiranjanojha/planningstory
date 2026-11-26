@@ -44,27 +44,21 @@ docker push amr-registry-pre.caas.intel.com/if-pdh-ai-assist/planningstory:lates
 
 ---
 
-## Step 2 — Create Harbor Registry & App Secrets in Rancher
+## Step 2 — Create Harbor Registry & App Secrets in Rancher (`if-pdh-ai-assist`)
 
-1. **Create Namespace:**
+- **Harbor Project:** `https://amr-registry-pre.caas.intel.com/harbor/projects/125194/repositories`
+- **Rancher Namespace:** `https://amr-pre.caas.intel.com/dashboard/c/c-skrnn/explorer/namespace/if-pdh-ai-assist`
+
+1. **Create Harbor `imagePullSecret` (`harbor-regcred`) in `if-pdh-ai-assist`:**
    ```bash
-   kubectl apply -f deploy/rancher/namespace.yaml
-   ```
-2. **Create Harbor `imagePullSecret` (`harbor-regcred`):**
-   ```bash
-   kubectl -n planningstory create secret docker-registry harbor-regcred \
+   kubectl -n if-pdh-ai-assist create secret docker-registry harbor-regcred \
      --docker-server=amr-registry-pre.caas.intel.com \
      --docker-username=<HARBOR_ROBOT_OR_USER> \
      --docker-password=<HARBOR_PASSWORD>
    ```
-3. **Create Runtime App Secrets (`planningstory-secrets`):**
-   *(Use `deploy/rancher/secret.example.yaml` as reference — never commit real secrets.)*
+2. **Load Entra ID & Runtime Secrets directly from your local `.env`:**
    ```bash
-   kubectl -n planningstory create secret generic planningstory-secrets \
-     --from-literal=AZURE_TENANT_ID=<TENANT_ID> \
-     --from-literal=AZURE_CLIENT_ID=<CLIENT_ID> \
-     --from-literal=AZURE_CLIENT_SECRET=<CLIENT_SECRET> \
-     --from-literal=AZURE_GROUP_IDS=<GROUP_ID>
+   kubectl -n if-pdh-ai-assist create secret generic planningstory-secrets --from-env-file=.env
    ```
 
 ---
@@ -77,7 +71,7 @@ docker push amr-registry-pre.caas.intel.com/if-pdh-ai-assist/planningstory:lates
 2. Deploy via Kustomize (CLI or Rancher **Import YAML**):
    ```bash
    kubectl apply -k deploy/rancher/
-   kubectl -n planningstory rollout status deployment/planningstory
+   kubectl -n if-pdh-ai-assist rollout status deployment/planningstory
    ```
 
 ---
@@ -86,12 +80,12 @@ docker push amr-registry-pre.caas.intel.com/if-pdh-ai-assist/planningstory:lates
 
 ```bash
 # Verify pod readiness & single-origin health
-kubectl -n planningstory get pods,svc,ingress
+kubectl -n if-pdh-ai-assist get pods,svc,ingress
 curl -fsS https://planningstory.intel.com/api/ready
 curl -fsS https://planningstory.intel.com/api/v2/health
 ```
 
 ### Rollback (if needed)
 ```bash
-kubectl -n planningstory rollout undo deployment/planningstory
+kubectl -n if-pdh-ai-assist rollout undo deployment/planningstory
 ```

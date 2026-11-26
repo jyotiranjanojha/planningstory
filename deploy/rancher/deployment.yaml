@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: planningstory
-  namespace: planningstory
+  namespace: if-pdh-ai-assist
   labels:
     app: planningstory
     app.kubernetes.io/name: planningstory

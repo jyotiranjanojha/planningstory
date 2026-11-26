@@ -2,7 +2,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: planningstory-data-pvc
-  namespace: planningstory
+  namespace: if-pdh-ai-assist
   labels:
     app: planningstory
 spec:

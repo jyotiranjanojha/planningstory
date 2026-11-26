@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: planningstory-config
-  namespace: planningstory
+  namespace: if-pdh-ai-assist
   labels:
     app: planningstory
 data:
@@ -21,7 +21,7 @@ data:
   PROXY_TIMEOUT_MS: "120000"
   V2_CORE_ENABLED: "true"
   LLM_PROVIDER: "ollama"
-  OLLAMA_BASE_URL: "http://ollama.planningstory.svc.cluster.local:11434"
+  OLLAMA_BASE_URL: "http://ollama.if-pdh-ai-assist.svc.cluster.local:11434"
   OLLAMA_MODEL: "qwen2.5-coder:latest"
   OLLAMA_VISION_MODEL: "gemma3:latest"
   JUDGE_LLM_ENABLED: "false"
