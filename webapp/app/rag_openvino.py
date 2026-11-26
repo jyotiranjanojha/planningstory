@@ -210,9 +210,10 @@ def _load_csv_documents(base_dir: Path):
     from langchain_core.documents import Document
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+    from .v2.core.data import resolve_input_dir, resolve_output_dir
+
     docs: List[Document] = []
-    for source, folder_name in [("input", INPUT_FOLDER), ("output", OUTPUT_FOLDER)]:
-        folder = base_dir / folder_name
+    for source, folder in [("input", resolve_input_dir(base_dir)), ("output", resolve_output_dir(base_dir))]:
         if not folder.exists():
             continue
         for csv_file in sorted(folder.glob("*.csv")):

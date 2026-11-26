@@ -6,6 +6,12 @@ metadata:
   labels:
     app: planningstory
 data:
+  # Fixed container & Intel corporate proxy plumbing (no need to edit per environment).
+  # All application settings (LLM provider/keys, Entra ID SSO, shared data paths,
+  # auto-refresh interval) are managed in your .env.caas file and loaded into
+  # Kubernetes Secret `planningstory-secrets` via:
+  #   kubectl -n if-pdh-ai-assist create secret generic planningstory-secrets \
+  #     --from-env-file=.env.caas --dry-run=client -o yaml | kubectl apply -f -
   http_proxy: "http://proxy-dmz.intel.com:912"
   https_proxy: "http://proxy-dmz.intel.com:912"
   no_proxy: "localhost,127.0.0.0/8,10.0.0.0/8,.intel.com,.svc,.svc.cluster.local"
@@ -20,13 +26,4 @@ data:
   PYTHON_BASE_URL: "http://127.0.0.1:8001"
   PROXY_TIMEOUT_MS: "120000"
   V2_CORE_ENABLED: "true"
-  # Recommended for Rancher containers (no local Ollama daemon required):
-  LLM_PROVIDER: "snowflake_cortex"
-  SNOWFLAKE_CORTEX_ACCOUNT: "REPLACE_WITH_SNOWFLAKE_ACCOUNT"
-  SNOWFLAKE_CORTEX_MODEL: "claude-3-5-sonnet"
-  SNOWFLAKE_CORTEX_TOKEN_TYPE: "PROGRAMMATIC_ACCESS_TOKEN"
-  JUDGE_LLM_ENABLED: "false"
   SEMANTIC_MODE: "legacy"
-  AZURE_REQUIRE_GROUP_CHECK: "false"
-  # Update to your Rancher Ingress HTTPS URL:
-  AZURE_REDIRECT_URI: "https://planningstory.intel.com/auth/callback"

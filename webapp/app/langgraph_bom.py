@@ -40,6 +40,7 @@ from .analyzer import (
     _safe_float,
     _safe_rows,
 )
+from .v2.core.data import resolve_input_dir, resolve_output_dir
 
 MAX_BOM_DEPTH = int(3)
 
@@ -163,7 +164,7 @@ def check_demand(state: BomDrillState) -> Dict[str, Any]:
     scenario_id = state["scenario_id"]
     site = state["site"]
 
-    output_dir = base_dir / OUTPUT_FOLDER
+    output_dir = resolve_output_dir(base_dir)
     inddmdview_file = _find_file_by_prefix(output_dir, "by_if_snop_out_inddmdview-")
 
     demand_qty = 0.0
@@ -239,7 +240,7 @@ def check_supply(state: BomDrillState) -> Dict[str, Any]:
     depth = state["depth"]
     frontier = state["frontier"]
 
-    output_dir = base_dir / OUTPUT_FOLDER
+    output_dir = resolve_output_dir(base_dir)
     supply_map = dict(state.get("supply_map") or {})
     visited = list(state.get("visited") or [])
     items_with_no_supply: List[str] = []
@@ -295,7 +296,7 @@ def drill_bom(state: BomDrillState) -> Dict[str, Any]:
     bom_tree = dict(state.get("bom_tree") or {})
     depth = state.get("depth", 0)
 
-    input_dir = base_dir / INPUT_FOLDER
+    input_dir = resolve_input_dir(base_dir)
     bom_file = _find_file_by_prefix(input_dir, "if_snop_billofmaterials-")
     alt_bom_file = _find_file_by_prefix(input_dir, "if_snop_altbillofmaterials-")
 

@@ -21,6 +21,7 @@ from .rag import ensure_rag_index, query_rag
 from .intent_classifier import OpenVINOQwenIntentClassifier
 from .grounding_engine import build_grounded_answer
 from .context_resolution import get_context_resolver, get_context_store
+from .v2.core.data import resolve_input_dir, resolve_output_dir
 
 
 INPUT_FOLDER = "by_input"
@@ -166,14 +167,18 @@ def _get_active_llm_config():
     elif LLM_PROVIDER == "custom":
         if not CUSTOM_LLM_BASE_URL or not CUSTOM_LLM_MODEL:
             raise ValueError("CUSTOM_LLM_BASE_URL and CUSTOM_LLM_MODEL required for custom provider.")
+        clean_custom_url = CUSTOM_LLM_BASE_URL.strip().rstrip("/")
+        for _sfx in ("/v1/chat/completions", "/chat/completions", "/v1"):
+            if clean_custom_url.lower().endswith(_sfx):
+                clean_custom_url = clean_custom_url[: -len(_sfx)].rstrip("/")
         return {
             "provider": "custom",
-            "base_url": CUSTOM_LLM_BASE_URL,
+            "base_url": clean_custom_url,
             "api_key": CUSTOM_LLM_API_KEY,
-            "auth_header": "Authorization",  # assume Bearer by default for custom
+            "auth_header": os.getenv("CUSTOM_LLM_AUTH_HEADER", "Authorization").strip() or "Authorization",
             "model": CUSTOM_LLM_MODEL,
             "judge_model": CUSTOM_LLM_MODEL,
-            "vision_model": CUSTOM_LLM_MODEL,
+            "vision_model": os.getenv("CUSTOM_LLM_VISION_MODEL", CUSTOM_LLM_MODEL).strip() or CUSTOM_LLM_MODEL,
         }
     elif LLM_PROVIDER == "openvino":
         # Verify OpenVINO is available
@@ -682,8 +687,8 @@ _INVENTORY_CACHE: Dict[str, tuple] = {}
 
 
 def dataset_inventory(base_dir: Path) -> Dict:
-    input_dir = base_dir / INPUT_FOLDER
-    output_dir = base_dir / OUTPUT_FOLDER
+    input_dir = resolve_input_dir(base_dir)
+    output_dir = resolve_output_dir(base_dir)
     input_files = _list_csv_files(input_dir)
     output_files = _list_csv_files(output_dir)
     # fingerprint by sorted filenames + mtimes so cache invalidates when files change
@@ -731,7 +736,7 @@ def _row_matches_week_scenario(row: Dict, week_id: Optional[str], scenario_id: O
 
 
 def _table_rows_by_view(base_dir: Path, week_id: Optional[str], scenario_id: Optional[str]) -> Tuple[Dict[str, Optional[Path]], Dict[str, List[Dict]]]:
-    input_dir = base_dir / INPUT_FOLDER
+    input_dir = resolve_input_dir(base_dir)
     files_by_view: Dict[str, Optional[Path]] = {}
     rows_by_view: Dict[str, List[Dict]] = {}
     for view_name, cfg in INPUT_DQ_VIEW_CONFIG.items():
@@ -1391,7 +1396,7 @@ def _collect_context_catalog(base_dir: Path) -> Dict:
     cached = _CONTEXT_CATALOG_CACHE.get(cache_key)
     if cached and (_time.monotonic() - cached[0]) < _CONTEXT_CATALOG_TTL:
         return cached[1]
-    output_dir = base_dir / OUTPUT_FOLDER
+    output_dir = resolve_output_dir(base_dir)
     catalog = {}
 
     for file_path in _list_csv_files(output_dir):
@@ -1651,7 +1656,7 @@ def _item_demand_evidence(base_dir: Path, week_id: Optional[str], scenario_id: O
     if not item:
         return {"item": None, "demand_rows": 0, "extorder_hits": 0, "headerextref_hits": 0, "site_filtered": bool((scope.get("site") or "").strip())}
 
-    output_dir = base_dir / OUTPUT_FOLDER
+    output_dir = resolve_output_dir(base_dir)
     inddmdview_file = _find_file_by_prefix(output_dir, "by_if_snop_out_inddmdview-")
     site = (scope.get("site") or "").strip()
     demand_rows = 0
@@ -2678,6 +2683,21 @@ def list_ollama_models() -> Dict:
         with request.urlopen(req, timeout=15) as response:
             body = json.loads(response.read().decode("utf-8"))
     except (error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+        if provider == "custom" and base_url and model:
+            env_models = [m.strip() for m in os.getenv("CUSTOM_LLM_MODELS", "").split(",") if m.strip()]
+            ordered_custom = list(dict.fromkeys([model] + env_models))
+            return {
+                "provider": "Custom",
+                "reachable": True,
+                "default_model": model,
+                "best_available": model,
+                "recommended_models": ordered_custom[:3],
+                "models": ordered_custom,
+                "model_info": {
+                    m: {"recommended": (m == model), "note": "Configured Custom LLM model"}
+                    for m in ordered_custom
+                },
+            }
         return {
             "provider": provider.capitalize(),
             "reachable": False,
@@ -2779,8 +2799,8 @@ def run_validation(base_dir: Path, week_id: Optional[str], scenario_id: Optional
     context = _resolve_context(base_dir, week_id, scenario_id)
     week_id = context["week_id"]
     scenario_id = context["scenario_id"]
-    input_dir = base_dir / INPUT_FOLDER
-    output_dir = base_dir / OUTPUT_FOLDER
+    input_dir = resolve_input_dir(base_dir)
+    output_dir = resolve_output_dir(base_dir)
 
     valid_focus_order = ["master_data", "bom", "parameters", "output_sanity"]
     selected_focus = [area for area in valid_focus_order if area in requested_focus] or valid_focus_order
@@ -2955,7 +2975,7 @@ def run_validation(base_dir: Path, week_id: Optional[str], scenario_id: Optional
 
 
 def run_bom_traversal_check(base_dir: Path, week_id: Optional[str], scenario_id: Optional[str], scope: Dict) -> Dict:
-    input_dir = base_dir / INPUT_FOLDER
+    input_dir = resolve_input_dir(base_dir)
     context = _resolve_context(base_dir, week_id, scenario_id)
 
     bom_file = _find_latest_file_by_prefix(input_dir, "if_snop_billofmaterials-")
@@ -3229,7 +3249,7 @@ def run_bom_traversal_check(base_dir: Path, week_id: Optional[str], scenario_id:
 
 
 def run_production_route_check(base_dir: Path, week_id: Optional[str], scenario_id: Optional[str], scope: Dict) -> Dict:
-    input_dir = base_dir / INPUT_FOLDER
+    input_dir = resolve_input_dir(base_dir)
     context = _resolve_context(base_dir, week_id, scenario_id)
 
     bom_file = _find_latest_file_by_prefix(input_dir, "if_snop_billofmaterials-")
@@ -3500,8 +3520,8 @@ def run_root_cause(
     scenario_id = context["scenario_id"]
     domain_entity = _parse_demand_entity(demand_id, demand_entity)
 
-    input_dir = base_dir / INPUT_FOLDER
-    output_dir = base_dir / OUTPUT_FOLDER
+    input_dir = resolve_input_dir(base_dir)
+    output_dir = resolve_output_dir(base_dir)
     exception_file = _find_file_by_prefix(output_dir, "by_if_snop_out_skuexception-")
     relation_file = _find_file_by_prefix(output_dir, "by_if_snop_out_exceptionorderrelation-")
     inddmdview_file = _find_file_by_prefix(output_dir, "by_if_snop_out_inddmdview-")
@@ -4203,8 +4223,8 @@ def _compute_rc_deep_evidence(
     """
     from collections import defaultdict
 
-    input_dir  = base_dir / INPUT_FOLDER
-    output_dir = base_dir / OUTPUT_FOLDER
+    input_dir  = resolve_input_dir(base_dir)
+    output_dir = resolve_output_dir(base_dir)
 
     evidence: Dict = {}
 
@@ -4924,7 +4944,7 @@ def run_knowledge_graph(base_dir: Path, week_id: Optional[str], scenario_id: Opt
     demand_item = (item_id or "").strip()
     site = (scope.get("site") or "").strip()
 
-    output_dir = base_dir / OUTPUT_FOLDER
+    output_dir = resolve_output_dir(base_dir)
     inddmdview_file = _find_file_by_prefix(output_dir, "by_if_snop_out_inddmdview-")
     inddmdlink_file = _find_file_by_prefix(output_dir, "by_if_snop_out_inddmdlink-")
     resload_link_file = _find_file_by_prefix(output_dir, "by_if_snop_out_resloadinddmdlink-")
@@ -5123,8 +5143,8 @@ def _run_insights_impl(
     scope: Dict,
 ) -> Dict:
     site = (scope.get("site") or "").strip()
-    input_dir = base_dir / INPUT_FOLDER
-    output_dir = base_dir / OUTPUT_FOLDER
+    input_dir = resolve_input_dir(base_dir)
+    output_dir = resolve_output_dir(base_dir)
 
     skuproj_file = _find_file_by_prefix(output_dir, "by_if_snop_out_skuprojstatic-")
     resproj_file = _find_file_by_prefix(output_dir, "by_if_snop_out_resprojstatic-")
@@ -5518,8 +5538,8 @@ def run_sku_exception_analysis(
     scenario_id = context["scenario_id"]
     site = (scope.get("site") or scope.get("node") or "").strip()
 
-    output_dir = base_dir / OUTPUT_FOLDER
-    input_dir = base_dir / INPUT_FOLDER
+    output_dir = resolve_output_dir(base_dir)
+    input_dir = resolve_input_dir(base_dir)
     exception_file = _find_file_by_prefix(output_dir, "by_if_snop_out_skuexception-")
     inddmdview_file = _find_file_by_prefix(output_dir, "by_if_snop_out_inddmdview-")
     bom_file = _find_file_by_prefix(input_dir, "if_snop_billofmaterials-")

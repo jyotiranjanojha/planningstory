@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from .v2.core.data import resolve_input_dir, resolve_output_dir
 
 INPUT_FOLDER = "by_input"
 OUTPUT_FOLDER = "by_output"
@@ -74,8 +75,7 @@ def _build_fingerprint(base_dir: Path) -> Dict[str, Dict[str, int]]:
     if cached and (_time.monotonic() - cached[1]) < _FINGERPRINT_TTL_SECS:
         return cached[0]
     fingerprint: Dict[str, Dict[str, int]] = {}
-    for family, folder_name in [("input", INPUT_FOLDER), ("output", OUTPUT_FOLDER)]:
-        folder = base_dir / folder_name
+    for family, folder in [("input", resolve_input_dir(base_dir)), ("output", resolve_output_dir(base_dir))]:
         for file_path in _list_csv_files(folder):
             stat = file_path.stat()
             key = f"{family}:{file_path.name}"
@@ -217,8 +217,7 @@ def build_rag_index(
     ingested_files = 0
     truncated_files: List[Dict] = []
 
-    for family, folder_name in [("input", INPUT_FOLDER), ("output", OUTPUT_FOLDER)]:
-        folder = base_dir / folder_name
+    for family, folder in [("input", resolve_input_dir(base_dir)), ("output", resolve_output_dir(base_dir))]:
         for file_path in _list_csv_files(folder):
             ingested_files += 1
             table = _short_table_name(file_path.name)

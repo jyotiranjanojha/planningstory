@@ -179,3 +179,116 @@ def test_v2_snowflake_cortex_sql_mode(monkeypatch):
     assert _parse_cortex_sql_result('{"choices":[{"messages":"Cortex SQL OK"}]}') == "Cortex SQL OK"
     assert _parse_cortex_sql_result('{"choices":[{"message":{"content":"Nested OK"}}]}') == "Nested OK"
     assert _parse_cortex_sql_result("Plain text reply") == "Plain text reply"
+
+
+def test_v2_shared_data_path_overrides(monkeypatch, tmp_path):
+    from webapp.app.v2.core.data import resolve_data_dirs
+
+    shared_root = tmp_path / "shared_share"
+    (shared_root / "by_input").mkdir(parents=True)
+    (shared_root / "by_output").mkdir(parents=True)
+    (shared_root / "by_input" / "if_snop_item-20260101000000.csv").write_text(
+        "ITEM|ITEMCLASS\nITEM_SHARED_1|Stack Silicon\n", encoding="utf-8"
+    )
+    (shared_root / "by_output" / "by_if_snop_out_inddmdview-20260101000000.csv").write_text(
+        "ITEM|LOC|QTY|SCHEDQTY\nITEM_SHARED_1|LOC1|100|80\n", encoding="utf-8"
+    )
+
+    # 1. PLANNING_DATA_DIR overrides both by_input and by_output
+    monkeypatch.setenv("PLANNING_DATA_DIR", str(shared_root))
+    monkeypatch.delenv("BY_INPUT_DIR", raising=False)
+    monkeypatch.delenv("BY_OUTPUT_DIR", raising=False)
+    in_dir, out_dir = resolve_data_dirs(REPO_ROOT)
+    assert in_dir == shared_root / "by_input"
+    assert out_dir == shared_root / "by_output"
+
+    engine = get_data_engine(REPO_ROOT)
+    summary = engine.catalog_summary()
+    assert summary["input_dir"] == str(shared_root / "by_input")
+    assert summary["output_dir"] == str(shared_root / "by_output")
+    assert summary["total_views"] == 2
+    rows = engine.query('SELECT ITEM, QTY FROM "by_if_snop_out_inddmdview"')
+    assert rows == [{"ITEM": "ITEM_SHARED_1", "QTY": "100"}]
+
+    # 2. Explicit BY_INPUT_DIR / BY_OUTPUT_DIR take precedence over PLANNING_DATA_DIR
+    custom_in = tmp_path / "custom_in"
+    custom_out = tmp_path / "custom_out"
+    custom_in.mkdir()
+    custom_out.mkdir()
+    monkeypatch.setenv("BY_INPUT_DIR", str(custom_in))
+    monkeypatch.setenv("BY_OUTPUT_DIR", str(custom_out))
+    in_dir2, out_dir2 = resolve_data_dirs(REPO_ROOT)
+    assert in_dir2 == custom_in
+    assert out_dir2 == custom_out
+
+    # 3. Incremental local cache sync mirrors CSVs and reloads cleanly
+    cache_dir = tmp_path / "local_cache"
+    monkeypatch.setenv("PLANNING_DATA_DIR", str(shared_root))
+    monkeypatch.delenv("BY_INPUT_DIR", raising=False)
+    monkeypatch.delenv("BY_OUTPUT_DIR", raising=False)
+    monkeypatch.setenv("PLANNING_DATA_CACHE_ENABLED", "true")
+    monkeypatch.setenv("PLANNING_DATA_CACHE_DIR", str(cache_dir))
+
+    cached_engine = get_data_engine(REPO_ROOT)
+    cat = cached_engine.catalog_summary()
+    assert cat["cache_enabled"] is True
+    assert cat["input_dir"] == str(cache_dir / "by_input")
+    assert cat["source_input_dir"] == str(shared_root / "by_input")
+    assert cat["total_views"] == 2
+    assert (cache_dir / "by_input" / "if_snop_item-20260101000000.csv").exists()
+
+    # Add a new file on the shared source and trigger zero-touch auto-detection check
+    check_no_change = cached_engine.check_for_updates()
+    assert check_no_change["changed"] is False
+    assert check_no_change["copied"] == 0
+    assert check_no_change["skipped"] == 2
+
+    (shared_root / "by_input" / "if_snop_loc-20260101000000.csv").write_text(
+        "LOC|DESCR\nLOC1|Fab1\n", encoding="utf-8"
+    )
+    check_added = cached_engine.check_for_updates()
+    assert check_added["changed"] is True
+    assert check_added["copied"] == 1
+    assert check_added["skipped"] == 2
+    assert check_added["total_views"] == 3
+    assert cached_engine.has_table("if_snop_loc")
+
+    # Modify an existing output file (size change) and verify latest data is picked up
+    (shared_root / "by_output" / "by_if_snop_out_inddmdview-20260101000000.csv").write_text(
+        "ITEM|LOC|QTY|SCHEDQTY\nITEM_SHARED_1|LOC1|250|200\nITEM_SHARED_2|LOC1|50|50\n",
+        encoding="utf-8",
+    )
+    check_modified = cached_engine.check_for_updates()
+    assert check_modified["changed"] is True
+    assert check_modified["copied"] == 1
+    assert check_modified["skipped"] == 2
+    rows_updated = cached_engine.query('SELECT ITEM, QTY FROM "by_if_snop_out_inddmdview" ORDER BY ITEM')
+    assert rows_updated == [
+        {"ITEM": "ITEM_SHARED_1", "QTY": "250"},
+        {"ITEM": "ITEM_SHARED_2", "QTY": "50"},
+    ]
+
+
+def test_v2_custom_llm_model_garden(monkeypatch):
+    from webapp.app.v2.core.llm import UnifiedLLMClient
+
+    for raw_url in (
+        "https://models-gcp.intel.com",
+        "https://models-gcp.intel.com/v1",
+        "https://models-gcp.intel.com/v1/chat/completions",
+    ):
+        monkeypatch.setenv("LLM_PROVIDER", "custom")
+        monkeypatch.setenv("CUSTOM_LLM_BASE_URL", raw_url)
+        monkeypatch.setenv("CUSTOM_LLM_API_KEY", "sk-test-model-garden")
+        monkeypatch.setenv("CUSTOM_LLM_MODEL", "claude-opus-4-8")
+
+        settings = load_llm_settings()
+        assert settings.provider == "custom"
+        assert settings.base_url == "https://models-gcp.intel.com"
+        assert settings.model == "claude-opus-4-8"
+
+        client = UnifiedLLMClient(settings)
+        assert client._completions_url() == "https://models-gcp.intel.com/v1/chat/completions"
+        headers = client._headers()
+        assert headers["Authorization"] == "Bearer sk-test-model-garden"
+        assert headers["Content-Type"] == "application/json"

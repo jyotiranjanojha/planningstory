@@ -34,11 +34,20 @@ def get_copilot_v2() -> PlanningCopilotV2:
 @router.get("/health")
 def v2_health():
     engine = get_data_engine(BASE_DIR)
+    cat = engine.catalog_summary()
     llm = UnifiedLLMClient()
     return {
         "status": "ok",
         "engine": "ifsp-v2-core",
-        "duckdb_views": engine.catalog_summary()["total_views"],
+        "duckdb_views": cat["total_views"],
+        "input_dir": cat["input_dir"],
+        "output_dir": cat["output_dir"],
+        "source_input_dir": cat["source_input_dir"],
+        "source_output_dir": cat["source_output_dir"],
+        "cache_enabled": cat["cache_enabled"],
+        "refresh_interval_secs": cat["refresh_interval_secs"],
+        "last_checked_at": cat["last_checked_at"],
+        "last_refreshed_at": cat["last_refreshed_at"],
         "llm_provider": llm.settings.provider,
         "llm_model": llm.settings.model,
     }
@@ -47,6 +56,25 @@ def v2_health():
 @router.get("/catalog")
 def v2_catalog():
     return get_data_engine(BASE_DIR).catalog_summary()
+
+
+@router.post("/reload")
+def v2_reload_catalog():
+    """Force-sync shared file paths into local cache (if enabled) and refresh DuckDB views."""
+    engine = get_data_engine(BASE_DIR)
+    views = engine.refresh_catalog(force_sync=True)
+    cat = engine.catalog_summary()
+    return {
+        "status": "reloaded",
+        "total_views": views,
+        "by_input_count": cat["by_input_count"],
+        "by_output_count": cat["by_output_count"],
+        "input_dir": cat["input_dir"],
+        "output_dir": cat["output_dir"],
+        "source_input_dir": cat["source_input_dir"],
+        "source_output_dir": cat["source_output_dir"],
+        "cache_enabled": cat["cache_enabled"],
+    }
 
 
 @router.get("/graph/items")

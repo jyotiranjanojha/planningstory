@@ -170,6 +170,15 @@ _DEFAULT_CORTEX_MODELS = [
 ]
 
 
+def _normalize_custom_base_url(url: str) -> str:
+    """Normalize custom OpenAI-compatible base URL (accepts root, /v1, or /v1/chat/completions)."""
+    clean = _normalize_loopback(url)
+    for suffix in ("/v1/chat/completions", "/chat/completions", "/v1"):
+        if clean.lower().endswith(suffix):
+            clean = clean[: -len(suffix)].rstrip("/")
+    return clean
+
+
 def _resolve_cortex_base_url() -> str:
     explicit = os.getenv("SNOWFLAKE_CORTEX_BASE_URL", "").strip().rstrip("/")
     if explicit:
@@ -268,11 +277,12 @@ def load_llm_settings() -> LLMSettings:
         model = os.getenv("CUSTOM_LLM_MODEL", "").strip()
         return LLMSettings(
             provider="custom",
-            base_url=_normalize_loopback(os.getenv("CUSTOM_LLM_BASE_URL", "")),
+            base_url=_normalize_custom_base_url(os.getenv("CUSTOM_LLM_BASE_URL", "")),
             model=model,
-            sql_model=model,
-            vision_model=model,
+            sql_model=os.getenv("CUSTOM_LLM_SQL_MODEL", model).strip() or model,
+            vision_model=os.getenv("CUSTOM_LLM_VISION_MODEL", model).strip() or model,
             api_key=os.getenv("CUSTOM_LLM_API_KEY", "").strip() or None,
+            auth_header=os.getenv("CUSTOM_LLM_AUTH_HEADER", "Authorization").strip() or "Authorization",
             http_timeout_secs=http_timeout,
             ttft_timeout_secs=ttft_timeout,
         )
@@ -350,6 +360,15 @@ class UnifiedLLMClient:
                 "models": models,
             }
         except (error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+            if self.settings.provider == "custom" and self.settings.base_url and self.settings.model:
+                env_models = [m.strip() for m in os.getenv("CUSTOM_LLM_MODELS", "").split(",") if m.strip()]
+                fallback_models = list(dict.fromkeys([self.settings.model] + env_models))
+                return {
+                    "provider": "custom",
+                    "reachable": True,
+                    "default_model": self.settings.model,
+                    "models": fallback_models,
+                }
             return {
                 "provider": self.settings.provider,
                 "reachable": False,

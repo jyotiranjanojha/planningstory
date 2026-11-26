@@ -82,7 +82,15 @@ spec:
           volumeMounts:
             - name: app-data
               mountPath: /app/data
+            # Uncomment when mounting a shared NFS/SMB/RWX PVC for BY ESP CSVs
+            # (and set PLANNING_DATA_DIR="/mnt/planning-data" in configmap.yaml):
+            # - name: planning-shared-data
+            #   mountPath: /mnt/planning-data
+            #   readOnly: true
       volumes:
         - name: app-data
           persistentVolumeClaim:
             claimName: planningstory-data-pvc
+        # - name: planning-shared-data
+        #   persistentVolumeClaim:
+        #     claimName: planningstory-shared-data-pvc

@@ -196,14 +196,16 @@ def select_tables(state: SqlAgentState) -> Dict[str, Any]:
     catalog = _chat_table_catalog(base_dir)
     matched = _match_tables_for_question(question, catalog, max_tables=6)
 
+    from .v2.core.data import resolve_input_dir, resolve_output_dir
+
     # Build file map: clean table name -> absolute path
     table_file_map: Dict[str, str] = {}
     for tbl in matched:
         name = tbl.get("table") or ""
         file_name = tbl.get("file") or ""
         family = tbl.get("family") or "output"
-        folder = INPUT_FOLDER if family == "input" else OUTPUT_FOLDER
-        full_path = base_dir / folder / file_name
+        folder = resolve_input_dir(base_dir) if family == "input" else resolve_output_dir(base_dir)
+        full_path = folder / file_name
         if full_path.exists():
             table_file_map[name] = str(full_path)
 

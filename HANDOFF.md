@@ -1,8 +1,8 @@
 # Intel Foundry Planning Story — Project Handoff
 
-> **Last updated:** 2026-11-26 (End of Day)  
+> **Last updated:** 2026-11-26 (Late Evening — Shared File Path, Auto-Refresh Cache, Model Garden Custom LLM & Single-`.env` CaaS Workflow)  
 > **Repository:** `https://github.com/jyotiranjanojha/planningstory.git` (`origin/main` — sole canonical repository)  
-> **Latest Release Tag:** `v2.1.0` (`HEAD` at `95dcf74` + this handoff update)
+> **Latest Release Tag:** `v2.1.0` + shared-path / Model Garden / CaaS `.env` updates
 > **Harbor Project:** `https://amr-registry-pre.caas.intel.com/harbor/projects/125194/repositories` (`if-pdh-ai-assist`)  
 > **Rancher Namespace:** `https://amr-pre.caas.intel.com/dashboard/c/c-skrnn/explorer/namespace/if-pdh-ai-assist` (`if-pdh-ai-assist`)
 
@@ -55,6 +55,14 @@ This document captures the exact end-of-day state of the project so the next ses
   - **Verified live locally** against `XD14286-IFCDWDEV2` (`IF_WH_MDATA_CONSUMPTION`, `claude-sonnet-4-5`) — returned `Snowflake Cortex SQL Complete OK.` with zero second SSO prompt.
   - Fixed top-bar model dropdown alignment (`Cortex` compact label + flex alignment in `styles.css` / `app.js`).
 - **Interactive README:** Overhauled `README.md` with full Technology Stack table, Mermaid diagrams, and GitHub-compatible SVG 1.1 diagrams (`docs/images/ui-workspace-showcase.svg`, `docs/images/architecture-overview.svg`).
+- **Shared File Path + Incremental Snapshot Cache + Zero-Touch Auto-Refresh:**
+  - Added centralized `resolve_data_dirs()` / `resolve_source_data_dirs()` in `webapp/app/v2/core/data.py` supporting `BY_INPUT_DIR`, `BY_OUTPUT_DIR`, and `PLANNING_DATA_DIR` (with fallback to local `by_input/` and `by_output/`), wired across `data.py`, `analyzer.py`, `langgraph_bom.py`, `text_to_sql_agent.py`, `rag.py`, and `rag_openvino.py`.
+  - Added parallel incremental local snapshot cache (`PLANNING_DATA_CACHE_ENABLED=auto`, `data/snapshot_cache/`) + zero-touch background watcher (`PLANNING_DATA_REFRESH_INTERVAL_SECS=300`) that checks filename/size/`mtime`, copies only changed CSVs atomically, skips unchanged files, and reloads DuckDB views automatically (plus `POST /api/v2/reload` and full path/cache/refresh metadata in `/api/v2/health` and `/api/v2/catalog`).
+  - Configured local `.env` against live Intel share `\\IFBYESPconshare-dm.cps.intel.com\IFBYESP\R3_dev\pdh_ai_app\{by_input,by_output}` (**22** input + **18** output CSVs, **36.49 MB**) and verified live end-to-end: **40** DuckDB views, **1.09s** warm startup, **26.5ms** query, **183ms** `/api/v2/chat`.
+  - Added `deploy/rancher/shared-storage-smb.yaml` (`ReadOnlyMany` PV/PVC template via `smb.csi.k8s.io` + NFS alternative for CaaS).
+- **Intel Model Garden (`custom` LLM) & Single-File `.env` Workflow for CaaS:**
+  - Hardened `LLM_PROVIDER=custom` in `webapp/app/v2/core/llm.py` and `webapp/app/analyzer.py` for Intel Model Garden (`https://models-gcp.intel.com/v1/chat/completions`, e.g., `claude-opus-4-8`): normalizes root / `/v1` / `/v1/chat/completions` URLs and falls back cleanly to `CUSTOM_LLM_MODEL` + `CUSTOM_LLM_MODELS` if `/v1/models` is restricted.
+  - Simplified `deploy/rancher/configmap.yaml` to fixed container/proxy plumbing only, added `.env.caas.example` (and `.env.*` ignore in `.gitignore`), so all app settings (LLM keys, Entra ID SSO, shared data path, refresh interval) are managed via a single `.env` locally and `.env.caas` → `planningstory-secrets` on CaaS.
 
 ---
 
@@ -63,25 +71,27 @@ This document captures the exact end-of-day state of the project so the next ses
 - **Local URLs:**
   - Primary Single-Origin UI (Node Gateway): `http://localhost:3004`
   - Direct Backend (no SSO): `http://127.0.0.1:8001`
-  - Readiness Check: `GET http://127.0.0.1:3004/api/ready` → `HTTP 200` (`40` DuckDB views, `snowflake_cortex / claude-sonnet-4-5`)
+  - Readiness Check: `GET http://127.0.0.1:3004/api/ready` → `HTTP 200` (`40` DuckDB views from live shared path cache)
 - **Automated Checks Passing:**
-  - `pytest -p no:cacheprovider tests/test_v2_core.py` → **12/12 passed** (includes Snowflake Cortex REST & SQL tests)
+  - `pytest -p no:cacheprovider tests/test_v2_core.py` → **14/14 passed** (includes Snowflake Cortex REST/SQL, shared-path + incremental auto-refresh cache, and Intel Model Garden `custom` LLM tests)
   - `node --check` on all `src/**/*.js` and `webapp/app/static/app.js` → **passed**
-  - YAML validation across all Harbor/Rancher manifests → **all valid**
-  - Live snapshot data: `by_input/` (**22** CSVs) + `by_output/` (**18** CSVs)
+  - YAML validation across all `deploy/rancher/*.yaml` manifests (including `shared-storage-smb.yaml`) → **all valid**
+  - Live shared snapshot data: `\\IFBYESPconshare-dm.cps.intel.com\IFBYESP\R3_dev\pdh_ai_app\{by_input,by_output}` (**22** input + **18** output CSVs, cached locally in `data/snapshot_cache/`)
 
 ---
 
-## 5. Next Steps (Where to Pick Up Tomorrow)
+## 5. Next Steps (Where to Pick Up Next)
 
-1. **Finalize Snowflake Cortex Auth for Headless Rancher Pods:**
-   - Decide between **RSA Key-Pair JWT (`KEYPAIR_JWT` — recommended for Rancher)**, **Snowflake PAT**, or **Entra External OAuth** (using a Snowflake-scoped token, not Graph-scoped). If choosing Key-Pair JWT, add automatic `.p8` JWT signing to `webapp/app/v2/core/llm.py` and `analyzer.py`.
+1. **Choose Headless LLM for CaaS (Single `.env.caas` Change):**
+   - **Fastest path:** Intel Model Garden (`LLM_PROVIDER=custom`, `CUSTOM_LLM_BASE_URL=https://models-gcp.intel.com`, `CUSTOM_LLM_API_KEY=sk-...`, `CUSTOM_LLM_MODEL=claude-opus-4-8`) — works identically locally and in headless CaaS pods with zero SSO friction.
+   - **Alternative:** Snowflake Cortex REST (`PAT` or RSA Key-Pair JWT).
 2. **Harbor Build & Push (`if-pdh-ai-assist`):**
    - Configure `HARBOR_USERNAME` and `HARBOR_PASSWORD` secrets in GitHub (`planningstory` repo) and run `.github/workflows/push-to-harbor.yml` (or run manual `docker build && docker push` to `amr-registry-pre.caas.intel.com/if-pdh-ai-assist/planningstory`).
-3. **Rancher Deployment into `if-pdh-ai-assist` (`c-skrnn`):**
-   - Create `harbor-regcred` and `planningstory-secrets` (`--from-env-file=.env`) in namespace `if-pdh-ai-assist`.
-   - Set final Ingress hostname + TLS secret in `deploy/rancher/configmap.yaml` and `deploy/rancher/ingress.yaml`, then run `kubectl apply -k deploy/rancher/`.
-   - Verify Entra ID SSO sign-in, `/api/ready`, SSE streaming (`/api/chat/stream`), and HTML report downloads through Rancher NGINX Ingress.
-4. **Optional Next Enhancements:**
+3. **Rancher / CaaS Deployment into `if-pdh-ai-assist` (`c-skrnn`):**
+   - Copy `.env.caas.example` → `.env.caas`, fill in LLM key + Entra ID SSO + `/mnt/planning-data`, and load into `planningstory-secrets` (`--from-env-file=.env.caas`).
+   - Create `harbor-regcred` and `planningstory-smb-creds` secrets in `if-pdh-ai-assist`, apply `deploy/rancher/shared-storage-smb.yaml`, and uncomment the `planning-shared-data` mount in `deploy/rancher/deployment.yaml`.
+   - Set final Ingress hostname + TLS secret in `deploy/rancher/ingress.yaml`, then run `kubectl apply -k deploy/rancher/`.
+   - Verify Entra ID SSO sign-in, `/api/ready`, `/api/v2/health`, SSE streaming (`/api/chat/stream`), and HTML report downloads through Rancher NGINX Ingress.
+4. **Long-Term Roadmap:**
+   - Connect live Snowflake PDH tables/views as the end-state data source alongside the shared file path engine.
    - Add 5-minute `NodeCache` caching on Microsoft Graph `checkMemberGroups` in `src/app.js` (if `AZURE_REQUIRE_GROUP_CHECK=true` is enabled).
-   - Connect live Snowflake PDH views / automated weekly BY ESP snapshot refresh into `PlanningDataEngine`.

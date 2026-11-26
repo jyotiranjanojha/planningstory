@@ -1,0 +1,65 @@
+# Optional CaaS / Rancher Shared Storage Template for Intel BY ESP Share
+# Target share: \\IFBYESPconshare-dm.cps.intel.com\IFBYESP\R3_dev\pdh_ai_app
+#
+# Prerequisites:
+#   1. Create the SMB service-account secret in namespace if-pdh-ai-assist:
+#        kubectl -n if-pdh-ai-assist create secret generic planningstory-smb-creds \
+#          --from-literal=username='<INTEL_SVC_ACCOUNT>' \
+#          --from-literal=password='<INTEL_SVC_PASSWORD>' \
+#          --from-literal=domain='AMR'
+#   2. Apply this file:
+#        kubectl apply -f deploy/rancher/shared-storage-smb.yaml
+#   3. Uncomment the `planning-shared-data` volumeMount in deploy/rancher/deployment.yaml
+#      and set PLANNING_DATA_DIR="/mnt/planning-data" + PLANNING_DATA_CACHE_ENABLED="true"
+#      in deploy/rancher/configmap.yaml.
+#
+# Note: If your CaaS cluster exposes this share via NFS instead of SMB CSI, replace the
+# `csi:` block below with:
+#   nfs:
+#     server: IFBYESPconshare-dm.cps.intel.com
+#     path: /IFBYESP/R3_dev/pdh_ai_app
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: planningstory-shared-data-pv
+  labels:
+    app: planningstory
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  mountOptions:
+    - dir_mode=0555
+    - file_mode=0444
+    - uid=10001
+    - gid=10001
+    - vers=3.0
+    - noserverino
+  csi:
+    driver: smb.csi.k8s.io
+    readOnly: true
+    volumeHandle: ifbyesp-r3-dev-pdh-ai-app
+    volumeAttributes:
+      source: "//IFBYESPconshare-dm.cps.intel.com/IFBYESP/R3_dev/pdh_ai_app"
+    nodeStageSecretRef:
+      name: planningstory-smb-creds
+      namespace: if-pdh-ai-assist
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: planningstory-shared-data-pvc
+  namespace: if-pdh-ai-assist
+  labels:
+    app: planningstory
+spec:
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: 10Gi
+  volumeName: planningstory-shared-data-pv
+  storageClassName: ""
