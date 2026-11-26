@@ -1,0 +1,42 @@
+# VCS and editor noise
+.git
+.gitignore
+.vscode
+.editorconfig
+
+# Python caches & virtual environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node packages and local artifacts
+node_modules/
+npm-debug.log*
+coverage/
+
+# Non-runtime directories & generated artifacts
+docs/
+notebooks/
+tests/
+reports/
+data/
+logs/
+.rag/
+HANDOFF.md
+_test_*.txt
+
+# Sensitive runtime config
+.env
+
+# Keep app code and runtime config needed for Docker build
+!webapp/
+!src/
+!package*.json
+!README.md
+!Dockerfile

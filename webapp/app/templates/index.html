@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Intel Foundry Planning AI Assistant</title>
+    <link rel="icon" type="image/png" href="/static/intelfoundrylogo.png" />
+    <link rel="stylesheet" href="/static/styles.css?v=12" />
+  </head>
+  <body>
+    <div class="bg-grid"></div>
+    <div class="bg-orb orb-a"></div>
+    <div class="bg-orb orb-b"></div>
+    <main class="layout">
+      <header class="hero">
+        <section class="hero-main">
+          <img class="brand-logo" src="/static/intelfoundrylogo.png" alt="Intel Foundry logo" />
+          <h1>Intel Foundry Planning AI Assistant</h1>
+          <p class="hero-tagline"><em>Unlock Planning Confidence with Automated Validation, Scenario Analysis, and Root-Cause Intelligence</em></p>
+          <button id="summaryBtn" class="btn primary">Load Dataset Summary</button>
+        </section>
+        <aside class="hero-side">
+          <div id="authUserBadge" class="auth-user-badge" aria-live="polite">Checking sign-in…</div>
+          <div class="global-model-card">
+            <div class="global-model-controls">
+              <label class="toggle-row compact-toggle" for="chatLlmEnabled">
+                <input id="chatLlmEnabled" type="checkbox" checked />
+                <span>Ollama</span>
+              </label>
+              <div class="inline-field compact-field">
+                <label for="chatLlmModel">Model</label>
+                <select id="chatLlmModel"></select>
+              </div>
+            </div>
+            <div id="chatLlmStatus" class="settings-note compact-note">Loading Ollama models...</div>
+          </div>
+        </aside>
+      </header>
+
+      <section class="workspace-shell chat-merged">
+        <aside class="app-menu card">
+          <div class="menu-head">
+            <h2>Menu</h2>
+            <button id="menuToggle" class="menu-toggle" type="button" aria-label="Collapse menu">Collapse</button>
+          </div>
+          <button class="menu-btn active" data-panel="chat" type="button" title="Chat Assistant">
+            <span class="menu-icon">C</span>
+            <span class="menu-label">Chat Assistant</span>
+          </button>
+          <button class="menu-btn" data-panel="validation" type="button" title="Validation Gate">
+            <span class="menu-icon">V</span>
+            <span class="menu-label">Validation Gate</span>
+          </button>
+          <button class="menu-btn" data-panel="comparison" type="button" title="Scenario Comparison">
+            <span class="menu-icon">S</span>
+            <span class="menu-label">Scenario Comparison</span>
+          </button>
+          <button class="menu-btn" data-panel="rootcause" type="button" title="Root Cause">
+            <span class="menu-icon">R</span>
+            <span class="menu-label">Root Cause</span>
+          </button>
+          <button class="menu-btn" data-panel="insights" type="button" title="Analytics Module">
+            <span class="menu-icon">I</span>
+            <span class="menu-label">Analytics Module</span>
+          </button>
+          <button class="menu-btn" data-panel="graph" type="button" title="Knowledge Graph">
+            <span class="menu-icon">G</span>
+            <span class="menu-label">Knowledge Graph</span>
+          </button>
+        </aside>
+
+        <section class="controls-column">
+          <article class="card chat-card feature-panel active" data-panel="chat">
+            <div class="card-top compact-top">
+              <div>
+                <h2>Chat Assistant</h2>
+              </div>
+              <div class="chat-header-actions">
+                <button id="chatScopeToggle" class="btn ghost chat-scope-btn" type="button" aria-expanded="false" title="Optional Week & Scenario filters">
+                  Filters
+                </button>
+                <button id="chatClearBtn" class="btn chat-clear-btn" type="button" aria-label="Start a new chat">
+                  <span class="btn-icon" aria-hidden="true">+</span>
+                  <span>New Chat</span>
+                </button>
+              </div>
+            </div>
+            <div id="chatResultPane" class="chat-thread"></div>
+            <div class="chat-input-area">
+              <div id="chatScopeBar" class="split-grid chat-context-grid" style="display:none">
+                <input
+                  id="chatWeek"
+                  placeholder="Week ID (optional — CAPTURE_WK)"
+                  title="Maps to CAPTURE_WK"
+                  aria-label="Week ID, maps to CAPTURE_WK"
+                />
+                <input
+                  id="chatScenario"
+                  placeholder="Scenario ID (optional — SIMULATION_NAME)"
+                  title="Maps to SIMULATION_NAME"
+                  aria-label="Scenario ID, maps to SIMULATION_NAME"
+                />
+              </div>
+              <div class="chat-input-row">
+                <textarea id="chatQuestion" rows="1" placeholder="Ask anything about demand, shortages, BOMs, or scenarios… (Enter to send, Shift+Enter for newline)"></textarea>
+                <button id="chatStopBtn" class="btn chat-stop-btn" type="button" style="display:none">Stop</button>
+                <button id="chatBtn" class="btn primary chat-send-btn" type="button">Send</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="card feature-panel" data-panel="validation">
+            <h2>Validation Gate</h2>
+            <div class="analytics-control-tabs" id="validationControlTabs" role="tablist" aria-label="Validation tabs">
+              <button class="analytics-control-tab active" type="button" data-val-tab="data_quality">Data Quality Check</button>
+              <button class="analytics-control-tab" type="button" data-val-tab="bom_traversal">BOM Traversal Check</button>
+              <button class="analytics-control-tab" type="button" data-val-tab="production_route">Production Route Check</button>
+              <button class="analytics-control-tab" type="button" data-val-tab="planning_parameters">Planning Parameters Check</button>
+              <button class="analytics-control-tab" type="button" data-val-tab="output_sanity">Output Sanity &amp; Solver Health</button>
+            </div>
+          </article>
+
+          <article class="card feature-panel" data-panel="comparison">
+            <h2>Scenario Comparison</h2>
+            <div class="field-grid">
+              <input id="cmpWeek" placeholder="Week ID = CAPTURE_WK (optional, latest by default)" />
+              <input id="cmpBase" placeholder="Base Scenario = SIMULATION_NAME" />
+              <input id="cmpCompare" placeholder="Compare Scenario = SIMULATION_NAME" />
+              <input id="cmpSite" placeholder="Plant (optional)" />
+            </div>
+            <button id="compareBtn" class="btn">Run Comparison</button>
+          </article>
+
+          <article class="card feature-panel" data-panel="rootcause">
+            <div class="card-top compact-top">
+              <div>
+                <h2>Root Cause Analyzer</h2>
+                <p class="hint" style="margin:0">AI-powered evidence-based demand-supply diagnosis.</p>
+              </div>
+              <span class="rc-badge">BY ESP</span>
+            </div>
+            <div class="kg-quick-wrap">
+              <div class="rc-label">Top Unmet Items <span class="rc-optional">click to analyze</span></div>
+              <div id="rcQuickPicks" class="kg-quick-picks">
+                <span class="hint" style="margin:0;font-size:0.78rem">Loading items…</span>
+              </div>
+            </div>
+            <div class="field-grid" style="margin-top:0.65rem">
+              <div class="split-grid rc-context-grid">
+                <div class="rc-field-wrap">
+                  <label class="rc-label" for="rcWeek">Week ID <span class="rc-optional">optional</span></label>
+                  <input id="rcWeek" placeholder="CAPTURE_WK" aria-label="Week ID" />
+                </div>
+                <div class="rc-field-wrap">
+                  <label class="rc-label" for="rcScenario">Scenario ID <span class="rc-optional">optional</span></label>
+                  <input id="rcScenario" placeholder="SIMULATION_NAME" aria-label="Scenario ID" />
+                </div>
+              </div>
+              <div class="rc-field-wrap">
+                <label class="rc-label" for="rcDemand">Item / Product ID <span class="rc-required">required</span></label>
+                <input id="rcDemand" list="kgItemList" placeholder="Search or pick an ITEM (e.g. 2000-280-868)" aria-label="Item ID" autocomplete="off" />
+              </div>
+              <div class="rc-field-wrap">
+                <label class="rc-label" for="rcQuestion">Analysis Question</label>
+                <select id="rcQuestion" aria-label="Analysis question type">
+                  <option value="full_diagnosis">🔍 Full Demand-Supply Diagnosis</option>
+                  <option value="why_unmet">❌ Why is demand unmet?</option>
+                  <option value="why_late">⏰ Why did demand get late?</option>
+                  <option value="why_short">📉 Why did demand get short?</option>
+                  <option value="why_early">⏩ Why was demand met early?</option>
+                  <option value="capacity_constraints">⚙️ Resource / Capacity Constraints</option>
+                  <option value="bom_sourcing_gaps">🔧 BOM and Sourcing Gaps</option>
+                  <option value="priority_conflict">⚡ Priority Conflict Impact</option>
+                  <option value="supply_pegging">🔗 Supply Pegging &amp; Lineage</option>
+                  <option value="eoh">📦 End-of-Horizon (EOH) Inventory</option>
+                </select>
+              </div>
+              <div class="rc-field-wrap">
+                <label class="rc-label" for="rcNode">Plant / Node <span class="rc-optional">optional</span></label>
+                <input id="rcNode" placeholder="Site / location filter" aria-label="Plant or node" />
+              </div>
+            </div>
+            <button id="rootCauseBtn" class="btn primary" type="button">Analyze Root Cause</button>
+          </article>
+
+          <article class="card feature-panel" data-panel="insights">
+            <h2>Analytics Module</h2>
+            <div class="analytics-control-tabs" id="analyticsControlTabs" role="tablist" aria-label="Analytics tabs">
+              <button class="analytics-control-tab active" type="button" data-tab="demand_supply">Demand vs Supply trend</button>
+              <button class="analytics-control-tab" type="button" data-tab="fill_rate">Fill Rate trend</button>
+              <button class="analytics-control-tab" type="button" data-tab="capacity">Capacity Utilization trend</button>
+              <button class="analytics-control-tab" type="button" data-tab="met_split">Demand Met vs UnMet vs Partially Met split</button>
+            </div>
+          </article>
+
+          <article class="card feature-panel" data-panel="graph">
+            <div class="card-top compact-top">
+              <div>
+                <h2>Knowledge Graph</h2>
+                <p class="hint" style="margin:0">Trace end-to-end lineage from Resources &rarr; Methods &rarr; Plants &rarr; Supply Items &rarr; Demand, with bottleneck highlights.</p>
+              </div>
+              <span class="rc-badge">BY ESP</span>
+            </div>
+            <div class="kg-quick-wrap">
+              <div class="rc-label">Top Unmet Items <span class="rc-optional">click to explore</span></div>
+              <div id="kgQuickPicks" class="kg-quick-picks">
+                <span class="hint" style="margin:0;font-size:0.78rem">Loading items…</span>
+              </div>
+            </div>
+            <div class="field-grid" style="margin-top:0.65rem">
+              <div class="rc-field-wrap">
+                <label class="rc-label" for="kgItem">Item / Product ID <span class="rc-required">required</span></label>
+                <input id="kgItem" list="kgItemList" placeholder="Search or pick an ITEM (e.g. 2000-280-868)" autocomplete="off" />
+                <datalist id="kgItemList"></datalist>
+              </div>
+              <div class="split-grid">
+                <input id="kgWeek" placeholder="Week ID = CAPTURE_WK (optional)" />
+                <input id="kgScenario" placeholder="Scenario ID = SIMULATION_NAME (optional)" />
+              </div>
+              <input id="kgSite" placeholder="Plant / Site (optional)" />
+            </div>
+            <button id="graphBtn" class="btn primary" type="button">Show Knowledge Graph</button>
+          </article>
+        </section>
+
+        <section class="insights-column">
+          <article class="output insight-page" data-panel="validation">
+            <div class="panel-top">
+              <div>
+                <h2>Validation Gate Output</h2>
+                <p class="hint">Validation findings, severity, and recommended fixes.</p>
+              </div>
+              <div id="valActiveGateBadge" class="validation-active-badge">Active Gate: Data Quality Check</div>
+            </div>
+            <div id="validationResultPane" class="result-pane">Select a validation sub-tab, enter Week ID and Scenario ID, then click Go.</div>
+          </article>
+
+          <article class="output insight-page" data-panel="comparison">
+            <div class="panel-top">
+              <div>
+                <h2>Scenario Comparison Output</h2>
+                <p class="hint">Scenario delta summary and driver analysis.</p>
+              </div>
+            </div>
+            <div id="comparisonResultPane" class="result-pane">Run comparison to view results...</div>
+          </article>
+
+          <article class="output insight-page rc-output-card" data-panel="rootcause">
+            <div class="rc-output-header">
+              <div class="rc-output-title-row">
+                <h2>Root Cause Analysis</h2>
+                <span id="rcStatusBadge" class="rc-status-badge" style="display:none"></span>
+              </div>
+              <p id="rcOutputMeta" class="hint rc-output-meta">Enter an item ID and select a question, then click Analyze.</p>
+            </div>
+            <!-- Statistics card strip -->
+            <div id="rcStatsStrip" class="rc-stats-strip" style="display:none">
+              <div class="rc-stat-card" id="rcStatDemand">
+                <span class="rc-stat-label">Demand Qty</span>
+                <span class="rc-stat-value" id="rcStatDemandVal">—</span>
+              </div>
+              <div class="rc-stat-card" id="rcStatSched">
+                <span class="rc-stat-label">Scheduled Qty</span>
+                <span class="rc-stat-value" id="rcStatSchedVal">—</span>
+              </div>
+              <div class="rc-stat-card rc-stat-unmet" id="rcStatUnmet">
+                <span class="rc-stat-label">Unmet Qty</span>
+                <span class="rc-stat-value" id="rcStatUnmetVal">—</span>
+              </div>
+              <div class="rc-stat-card rc-stat-fill" id="rcStatFill">
+                <span class="rc-stat-label">Fill Rate</span>
+                <span class="rc-stat-value" id="rcStatFillVal">—</span>
+              </div>
+              <div class="rc-stat-card" id="rcStatLate">
+                <span class="rc-stat-label">Late Qty</span>
+                <span class="rc-stat-value" id="rcStatLateVal">—</span>
+              </div>
+              <div class="rc-stat-card rc-stat-warn" id="rcStatCap">
+                <span class="rc-stat-label">Capacity Exceptions</span>
+                <span class="rc-stat-value" id="rcStatCapVal">—</span>
+              </div>
+              <div class="rc-stat-card" id="rcStatRes">
+                <span class="rc-stat-label">Resources</span>
+                <span class="rc-stat-value" id="rcStatResVal">—</span>
+              </div>
+              <div class="rc-stat-card rc-stat-warn" id="rcStatComp">
+                <span class="rc-stat-label">Competing Demand</span>
+                <span class="rc-stat-value" id="rcStatCompVal">—</span>
+              </div>
+            </div>
+            <!-- Narrative -->
+            <div id="rcNarrativePane" class="rc-narrative-pane">
+              <div class="chat-placeholder">Enter an item ID and select a question to begin analysis.</div>
+            </div>
+            <!-- Raw data toggle -->
+            <div id="rcRawToggleWrap" style="display:none;margin-top:0.6rem">
+              <button class="chat-details-toggle" type="button" id="rcRawToggleBtn">Show raw structured data</button>
+              <div class="chat-details-drawer" id="rcRawDrawer"></div>
+            </div>
+          </article>
+
+          <article class="output insight-page" data-panel="insights">
+            <div class="panel-top">
+              <div>
+                <h2>Analytics Output</h2>
+                <p class="hint">Interactive charts and trend insights by Week ID and Scenario ID.</p>
+              </div>
+            </div>
+            <div id="insightsResultPane" class="result-pane">Select an analytics sub-tab, enter Week ID and Scenario ID, and click Go.</div>
+          </article>
+
+          <article class="output insight-page" data-panel="graph">
+            <div class="panel-top">
+              <div>
+                <h2>Supply Chain Lineage Graph</h2>
+                <p class="hint">Left-to-right flow from constrained resources and production methods to supply items and customer demand. Click any card to inspect exceptions or drill into Chat / Root Cause.</p>
+              </div>
+            </div>
+            <div id="graphSummary" class="graph-summary">
+              <div class="kg-how-to">
+                <strong>How to use:</strong> Click any <em>Top Unmet Item</em> chip on the left (or search by Item ID), then click <strong>Show Knowledge Graph</strong>. Red/amber dots highlight active SKU or resource bottlenecks.
+              </div>
+            </div>
+            <div id="graphCanvas" class="graph-canvas"></div>
+          </article>
+        </section>
+      </section>
+    </main>
+
+    <script src="/static/app.js?v=23"></script>
+  </body>
+</html>

@@ -1,0 +1,33 @@
+# Python bytecode & virtual environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node dependencies
+node_modules/
+npm-debug.log*
+
+# Local secrets & runtime artifacts
+.env
+.rag/
+data/
+embedding_model/
+logs/
+reports/
+*.log
+
+# Ad-hoc scratch & test outputs
+_test_*.txt
+tests/test_nollama.py
+
+# OS noise
+.DS_Store
+Thumbs.db

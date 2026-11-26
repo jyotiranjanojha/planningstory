@@ -1,0 +1,27 @@
+[project]
+name = "ifspstory"
+version = "1.0.0"
+description = "Intel Foundry Supply Planning AI Assistant — explainability and validation for BY ESP snapshots"
+readme = "README.md"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = [
+    ".venv",
+    "node_modules",
+    "by_input",
+    "by_output",
+    "data",
+    "reports",
+    ".rag",
+]
