@@ -35,6 +35,7 @@ _ITEM_STOPWORDS = frozenset({
 _ITEM_EXPLICIT_RE = re.compile(r"\b(?:item|dmditem|product)\s*[:=#-]?\s*([A-Za-z0-9\-_]{5,})\b", re.IGNORECASE)
 _ITEM_NUMERIC_RE = re.compile(r"\b(\d{6,})\b")
 _SITE_RE = re.compile(r"\b(?:site|loc|location|plant)\s*[:=#-]?\s*([A-Za-z0-9\-_]{2,})\b", re.IGNORECASE)
+_RESOURCE_RE = re.compile(r"\b(RES_[A-Za-z0-9_]+)\b", re.IGNORECASE)
 
 _VALIDATION_KEYWORDS = (
     "validate", "validation", "referential integrity", "orphan", "master data",
@@ -45,12 +46,13 @@ _SCENARIO_KEYWORDS = (
     "week over week", "scenario delta", "versus", " vs ", "site mix", "which scenario",
 )
 _INVENTORY_KEYWORDS = (
-    "inventory", "on hand", "on-hand", "eoh", "end of horizon", "end-of-horizon",
-    "safety stock", "stockout", "stock out", "low stock", "projected oh",
+    "inventory", "on hand", "on-hand", "onhand", "eoh", "end of horizon", "end-of-horizon",
+    "safety stock", "stockout", "stock out", "low stock", "projected oh", "stock level",
 )
 _CAPACITY_KEYWORDS = (
     "capacity", "utilization", "overloaded", "underloaded", "overload", "underload",
-    "resource bottleneck", "resource load", "res load", "res util", "bottleneck resource",
+    "resource", "resources", "constraint", "constraints", "constrained",
+    "bottleneck", "bottlenecks", "res load", "res util", "resexception", "res exception",
 )
 _SUPPLY_ORDER_KEYWORDS = (
     "planned order", "planned orders", "planorder", "planned purchase", "planned purchases",
@@ -60,21 +62,30 @@ _SUPPLY_ORDER_KEYWORDS = (
 _BOM_LINEAGE_KEYWORDS = (
     "bom", "bill of material", "bill of materials", "alt bom", "alternate bom",
     "supersession", "subordinate", "where used", "where-used", "genealogy", "bom explosion",
+    "lineage", "sourcing", "production method", "routing", "components",
 )
 _FULFILLMENT_KEYWORDS = (
     "unmet", "met or not", "meet or not", "met or unmet", "demand met", "demand meet",
     "demand are met", "demand are meet", "demand is met", "fill rate", "shortage",
     "shortfall", "late demand", "backorder", "fulfillment", "fulfilled",
-    "order point", "why demand", "demand short", "why ",
+    "order point", "why demand", "demand short", "why ", "demand", "supply chain",
+    "exception", "exceptions", "root cause", "kpi", "kpis", "overview", "summary",
 )
 _FOLLOWUP_CONTINUATION_PHRASES = (
     "across all", "for all item", "all items", "show me more", "tell me more",
     "details", "break it down", "breakdown", "elaborate",
 )
 
-# Per-session last active route so conversational follow-ups ("show me across all items")
-# stay on the active domain (e.g. inventory -> inventory across all items).
+# Per-session last active route & resource so conversational follow-ups
+# (e.g. "this resource are impacting which item" or "show me across all items")
+# stay grounded in the active conversation context.
 _SESSION_LAST_ROUTE: Dict[str, str] = {}
+_SESSION_LAST_RESOURCE: Dict[str, str] = {}
+
+
+def extract_resource(question: str) -> Optional[str]:
+    m = _RESOURCE_RE.search(question or "")
+    return m.group(1).strip() if m else None
 
 
 def extract_item_id(question: str) -> Optional[str]:
@@ -263,17 +274,23 @@ class PlanningCopilotV2:
         scope = scope or {}
         item_id = extract_item_id(question) or (scope.get("item") or "").strip() or None
         location = extract_location(question) or (scope.get("site") or "").strip() or None
+        resource = extract_resource(question) or (scope.get("resource") or "").strip() or None
         item_ids: list[str] = []
         item_filter_label: Optional[str] = None
 
         if not item_id:
             item_ids, item_filter_label = resolve_item_group(question, self.data)
 
-        # Only carry forward prior item for explicit item follow-ups (not portfolio or item-group queries)
+        # Carry forward prior resource on explicit follow-ups like "this resource are impacting which item"
         ql = (question or "").lower()
-        is_portfolio = any(p in ql for p in ("all item", "all order", "overall", "portfolio", "across all"))
+        is_portfolio = any(p in ql for p in ("all item", "all order", "overall", "portfolio", "across all", "all resource", "these bottleneck", "bottleneck resources"))
+        if not resource and not is_portfolio and session_id in _SESSION_LAST_RESOURCE:
+            if any(p in ql for p in ("this resource", "that resource", "the resource", "this bottleneck")):
+                resource = _SESSION_LAST_RESOURCE[session_id]
+
+        # Only carry forward prior item for explicit item follow-ups (not portfolio or item-group queries)
         if not item_id and not item_ids and not is_portfolio and fallback_item_id:
-            if any(p in ql for p in ("why", "it", "that", "this", "short", "unmet", "late", "constraint")):
+            if any(p in ql for p in ("why", "it", "that", "this", "short", "unmet", "late", "constraint")) and "resource" not in ql:
                 item_id = fallback_item_id
 
         route = self.classify_route(
@@ -298,6 +315,7 @@ class PlanningCopilotV2:
             item_ids=item_ids,
             item_filter_label=item_filter_label,
             location=location,
+            resource=resource,
             week_id=week_id,
             scenario_id=scenario_id,
             show_detailed_analysis=show_detailed_analysis,
@@ -310,7 +328,13 @@ class PlanningCopilotV2:
         if route == "inventory":
             return self.inventory.run(ctx)
         if route == "capacity":
-            return self.capacity.run(ctx)
+            resp = self.capacity.run(ctx)
+            top_res = (resp.metrics or {}).get("top_resource")
+            if resource:
+                _SESSION_LAST_RESOURCE[session_id] = resource
+            elif top_res:
+                _SESSION_LAST_RESOURCE[session_id] = str(top_res)
+            return resp
         if route == "supply_orders":
             return self.supply_orders.run(ctx)
         if route == "bom_lineage":

@@ -350,7 +350,7 @@ def _resolve_session_id(request: Request, provided: str | None = None) -> str:
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
-    return RedirectResponse(url="/static/intelfoundrylogo.png")
+    return RedirectResponse(url="/static/intel-logo.svg")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -505,6 +505,9 @@ def rag_openvino_query(req: RagQueryRequest):
 @app.post("/api/validate")
 def validate(req: ValidationRequest):
     focus = [str(a or "").strip().lower() for a in (req.focus_areas or [])]
+    if V2_CORE_ENABLED and "bom_traversal" in focus:
+        item_scope = req.scope.product or None
+        return ValidationAgent(get_data_engine(BASE_DIR)).run_bom_traversal_gate(req.week_id, req.scenario_id, item_scope)
     if V2_CORE_ENABLED and "planning_parameters" in focus:
         return ValidationAgent(get_data_engine(BASE_DIR)).run_planning_parameters_gate(req.week_id, req.scenario_id)
     if V2_CORE_ENABLED and "output_sanity" in focus and len(focus) == 1:
@@ -519,6 +522,11 @@ def _resolve_validation_report(req: ValidationReportRequest):
         title = "BY Input Data Quality Report"
         html_content = generate_input_dq_html_report(report)
         file_stem = "by_input_data_quality"
+    elif V2_CORE_ENABLED and focus == "bom_traversal":
+        report = ValidationAgent(get_data_engine(BASE_DIR)).run_bom_traversal_gate(req.week_id, req.scenario_id)
+        title = "Validation Report - BOM Traversal & Integrity Check"
+        html_content = generate_validation_html_report(report, title=title)
+        file_stem = "validation_bom_traversal"
     elif V2_CORE_ENABLED and focus == "planning_parameters":
         report = ValidationAgent(get_data_engine(BASE_DIR)).run_planning_parameters_gate(req.week_id, req.scenario_id)
         title = "Validation Report - Planning Parameters Check"

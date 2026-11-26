@@ -332,3 +332,304 @@ class ValidationAgent:
                 "Review overloaded resource exceptions in Capacity & Knowledge Graph views.",
             ],
         }
+
+    def run_bom_traversal_gate(
+        self,
+        week_id: str | None = None,
+        scenario_id: str | None = None,
+        item_id: str | None = None,
+    ) -> Dict[str, Any]:
+        """Issue-focused DuckDB BOM Traversal & Structural Integrity Gate (no giant graph)."""
+        t0 = time.perf_counter()
+        checks: Dict[str, Any] = {}
+        critical: List[str] = []
+        high: List[str] = []
+        medium: List[str] = []
+        low: List[str] = []
+        issue_rows: List[Dict[str, Any]] = []
+        evidence: List[str] = []
+
+        if not self.data.has_table("if_snop_billofmaterials"):
+            return {
+                "Validation Scope": {"week_id": week_id, "scenario_id": scenario_id, "item_id": item_id, "focus_areas": ["bom_traversal"]},
+                "Readiness Verdict (Pass, Conditional Pass, Fail)": "Fail",
+                "Checks Executed": {},
+                "Issues Found (Critical, High, Medium, Low)": {"Critical": ["Missing required table: if_snop_billofmaterials"], "High": [], "Medium": [], "Low": []},
+                "BOM Issue Details": [],
+                "Datasets and Evidence Used": {"tables": []},
+                "Recommended Fixes (ordered by impact)": ["Load `if_snop_billofmaterials` into `by_input/` and re-run validation."],
+            }
+
+        evidence.append("if_snop_billofmaterials")
+        item_filter = (item_id or "").strip()
+        base_where = "WHERE UPPER(TRIM(ITEM)) = UPPER(TRIM(?))" if item_filter else ""
+        base_params: List[Any] = [item_filter] if item_filter else []
+
+        # 1. Coverage & topology metrics
+        agg = self.data.query_one(
+            f"""
+            SELECT
+                COUNT(*) AS bom_rows_total,
+                COUNT(DISTINCT TRIM(ITEM)) AS parent_items_total,
+                COUNT(DISTINCT TRIM(SUBORD)) AS component_items_total,
+                COUNT(DISTINCT TRIM(LOC)) AS bom_locations_total
+            FROM "if_snop_billofmaterials"
+            {base_where}
+            """,
+            base_params,
+        ) or {}
+        checks["bom_rows_total"] = int(agg.get("bom_rows_total") or 0)
+        checks["parent_items_total"] = int(agg.get("parent_items_total") or 0)
+        checks["component_items_total"] = int(agg.get("component_items_total") or 0)
+
+        # 2. Cycle detection & max traversal depth (in-memory DFS on distinct ITEM -> SUBORD edges)
+        edge_rows = self.data.query(
+            'SELECT DISTINCT TRIM(ITEM) AS p, TRIM(SUBORD) AS c FROM "if_snop_billofmaterials" WHERE TRIM(COALESCE(ITEM, \'\')) <> \'\' AND TRIM(COALESCE(SUBORD, \'\')) <> \'\''
+        )
+        adj: Dict[str, List[str]] = {}
+        for er in edge_rows:
+            adj.setdefault(er["p"], []).append(er["c"])
+
+        roots = [item_filter] if item_filter else list(adj.keys())
+        cycle_paths: List[str] = []
+        max_depth = 0
+        memo_depth: Dict[str, int] = {}
+
+        def _dfs(node: str, path: List[str], path_set: set[str]) -> int:
+            nonlocal max_depth
+            if node in memo_depth:
+                return memo_depth[node]
+            best = 0
+            for child in adj.get(node, ()):
+                if child in path_set:
+                    if len(cycle_paths) < 10:
+                        idx = path.index(child)
+                        cycle_paths.append(" -> ".join(path[idx:] + [child]))
+                    continue
+                if len(path) >= 20:
+                    continue
+                path.append(child)
+                path_set.add(child)
+                d = 1 + _dfs(child, path, path_set)
+                path.pop()
+                path_set.remove(child)
+                if d > best:
+                    best = d
+            memo_depth[node] = best
+            if best > max_depth:
+                max_depth = best
+            return best
+
+        for rt in roots:
+            if rt in adj:
+                _dfs(rt, [rt], {rt})
+
+        checks["bom_max_depth"] = max_depth
+        checks["bom_circular_cycles"] = len(cycle_paths)
+        if cycle_paths:
+            critical.append(f"Circular BOM loop(s) detected: {len(cycle_paths)} (e.g. {cycle_paths[0]})")
+            for cp in cycle_paths[:5]:
+                issue_rows.append({"Severity": "Critical", "Issue Type": "Circular BOM Cycle", "Parent Item": cp.split(" -> ")[0], "Component": cp.split(" -> ")[1] if " -> " in cp else "", "Location": "All", "BOM #": "-", "Detail": cp})
+
+        # 3. Self-referencing BOM rows (ITEM == SUBORD)
+        self_rows = self.data.query(
+            f"""
+            SELECT TRIM(ITEM) AS item, TRIM(SUBORD) AS subord, TRIM(LOC) AS loc, TRIM(BOMNUM) AS bomnum
+            FROM "if_snop_billofmaterials"
+            {"WHERE UPPER(TRIM(ITEM)) = UPPER(TRIM(?)) AND" if item_filter else "WHERE"} UPPER(TRIM(ITEM)) = UPPER(TRIM(SUBORD))
+            LIMIT 10
+            """,
+            base_params,
+        )
+        checks["bom_self_referencing_rows"] = len(self_rows)
+        if self_rows:
+            critical.append(f"Self-referencing BOM rows (ITEM = SUBORD): {len(self_rows)}")
+            for r in self_rows[:5]:
+                issue_rows.append({"Severity": "Critical", "Issue Type": "Self-Referencing BOM", "Parent Item": r["item"], "Component": r["subord"], "Location": r["loc"], "BOM #": r["bomnum"], "Detail": "Parent item references itself as a subordinate"})
+
+        # 4. Invalid / non-positive DRAWQTY
+        bad_draw = self.data.query(
+            f"""
+            SELECT TRIM(ITEM) AS item, TRIM(SUBORD) AS subord, TRIM(LOC) AS loc, TRIM(BOMNUM) AS bomnum, DRAWQTY
+            FROM "if_snop_billofmaterials"
+            {"WHERE UPPER(TRIM(ITEM)) = UPPER(TRIM(?)) AND" if item_filter else "WHERE"} (TRY_CAST(DRAWQTY AS DOUBLE) IS NULL OR TRY_CAST(DRAWQTY AS DOUBLE) <= 0)
+            LIMIT 10
+            """,
+            base_params,
+        )
+        checks["bom_invalid_draw_qty"] = len(bad_draw)
+        if bad_draw:
+            critical.append(f"BOM rows with blank, zero, or negative DRAWQTY: {len(bad_draw)}")
+            for r in bad_draw[:5]:
+                issue_rows.append({"Severity": "Critical", "Issue Type": "Invalid Draw Qty", "Parent Item": r["item"], "Component": r["subord"], "Location": r["loc"], "BOM #": r["bomnum"], "Detail": f"DRAWQTY={r['DRAWQTY']}"})
+
+        # 5. Duplicate BOM lines (ITEM, SUBORD, LOC, BOMNUM)
+        dup_rows = self.data.query(
+            f"""
+            SELECT TRIM(ITEM) AS item, TRIM(SUBORD) AS subord, TRIM(LOC) AS loc, TRIM(BOMNUM) AS bomnum, COUNT(*) AS cnt
+            FROM "if_snop_billofmaterials"
+            {base_where}
+            GROUP BY 1, 2, 3, 4
+            HAVING COUNT(*) > 1
+            ORDER BY cnt DESC
+            LIMIT 10
+            """,
+            base_params,
+        )
+        checks["bom_duplicate_lines"] = len(dup_rows)
+        if dup_rows:
+            medium.append(f"Duplicate BOM lines (same ITEM + SUBORD + LOC + BOMNUM): {len(dup_rows)}")
+            for r in dup_rows[:5]:
+                issue_rows.append({"Severity": "Medium", "Issue Type": "Duplicate BOM Line", "Parent Item": r["item"], "Component": r["subord"], "Location": r["loc"], "BOM #": r["bomnum"], "Detail": f"{r['cnt']} duplicate rows"})
+
+        # 6. Orphan parent / component items missing from if_snop_items
+        if self.data.has_table("if_snop_items"):
+            evidence.append("if_snop_items")
+            op_cnt = int((self.data.query_one(
+                f"""
+                SELECT COUNT(*) AS c FROM "if_snop_billofmaterials" b
+                LEFT JOIN "if_snop_items" i ON UPPER(TRIM(b.ITEM)) = UPPER(TRIM(i.ITEM))
+                {"WHERE UPPER(TRIM(b.ITEM)) = UPPER(TRIM(?)) AND" if item_filter else "WHERE"} i.ITEM IS NULL
+                """,
+                base_params,
+            ) or {}).get("c") or 0)
+            oc_cnt = int((self.data.query_one(
+                f"""
+                SELECT COUNT(*) AS c FROM "if_snop_billofmaterials" b
+                LEFT JOIN "if_snop_items" i ON UPPER(TRIM(b.SUBORD)) = UPPER(TRIM(i.ITEM))
+                {"WHERE UPPER(TRIM(b.ITEM)) = UPPER(TRIM(?)) AND" if item_filter else "WHERE"} i.ITEM IS NULL
+                """,
+                base_params,
+            ) or {}).get("c") or 0)
+            checks["bom_orphan_parent_item"] = op_cnt
+            checks["bom_orphan_component_item"] = oc_cnt
+            if op_cnt > 0:
+                high.append(f"BOM rows with parent ITEM missing from Item Master: {op_cnt}")
+            if oc_cnt > 0:
+                high.append(f"BOM rows with component SUBORD missing from Item Master: {oc_cnt}")
+
+        # 7. Component missing SKU at BOM location
+        if self.data.has_table("if_snop_sku"):
+            evidence.append("if_snop_sku")
+            miss_sku = self.data.query(
+                f"""
+                SELECT DISTINCT TRIM(b.ITEM) AS item, TRIM(b.SUBORD) AS subord, TRIM(b.LOC) AS loc, TRIM(b.BOMNUM) AS bomnum
+                FROM "if_snop_billofmaterials" b
+                LEFT JOIN "if_snop_sku" s ON UPPER(TRIM(b.SUBORD)) = UPPER(TRIM(s.ITEM)) AND UPPER(TRIM(b.LOC)) = UPPER(TRIM(s.LOC))
+                {"WHERE UPPER(TRIM(b.ITEM)) = UPPER(TRIM(?)) AND" if item_filter else "WHERE"} s.ITEM IS NULL
+                LIMIT 12
+                """,
+                base_params,
+            )
+            miss_sku_cnt = int((self.data.query_one(
+                f"""
+                SELECT COUNT(*) AS c FROM "if_snop_billofmaterials" b
+                LEFT JOIN "if_snop_sku" s ON UPPER(TRIM(b.SUBORD)) = UPPER(TRIM(s.ITEM)) AND UPPER(TRIM(b.LOC)) = UPPER(TRIM(s.LOC))
+                {"WHERE UPPER(TRIM(b.ITEM)) = UPPER(TRIM(?)) AND" if item_filter else "WHERE"} s.ITEM IS NULL
+                """,
+                base_params,
+            ) or {}).get("c") or 0)
+            checks["bom_component_missing_sku"] = miss_sku_cnt
+            if miss_sku_cnt > 0:
+                high.append(f"BOM component(s) missing SKU master record at BOM location: {miss_sku_cnt}")
+                for r in miss_sku[:6]:
+                    issue_rows.append({"Severity": "High", "Issue Type": "Component Missing SKU", "Parent Item": r["item"], "Component": r["subord"], "Location": r["loc"], "BOM #": r["bomnum"], "Detail": f"No SKU record for {r['subord']} @ {r['loc']}"})
+
+        # 8. BOM triplets missing a Production Method
+        if self.data.has_table("if_snop_productionmethod"):
+            evidence.append("if_snop_productionmethod")
+            no_pm = self.data.query(
+                f"""
+                SELECT DISTINCT TRIM(b.ITEM) AS item, TRIM(b.SUBORD) AS subord, TRIM(b.LOC) AS loc, TRIM(b.BOMNUM) AS bomnum
+                FROM "if_snop_billofmaterials" b
+                LEFT JOIN "if_snop_productionmethod" p
+                  ON UPPER(TRIM(b.ITEM)) = UPPER(TRIM(p.ITEM))
+                 AND UPPER(TRIM(b.LOC)) = UPPER(TRIM(p.LOC))
+                 AND UPPER(TRIM(COALESCE(b.BOMNUM, ''))) = UPPER(TRIM(COALESCE(p.BOMNUM, '')))
+                {"WHERE UPPER(TRIM(b.ITEM)) = UPPER(TRIM(?)) AND" if item_filter else "WHERE"} p.ITEM IS NULL
+                LIMIT 12
+                """,
+                base_params,
+            )
+            no_pm_cnt = int((self.data.query_one(
+                f"""
+                SELECT COUNT(DISTINCT TRIM(b.ITEM) || '|' || TRIM(b.LOC) || '|' || TRIM(COALESCE(b.BOMNUM, ''))) AS c
+                FROM "if_snop_billofmaterials" b
+                LEFT JOIN "if_snop_productionmethod" p
+                  ON UPPER(TRIM(b.ITEM)) = UPPER(TRIM(p.ITEM))
+                 AND UPPER(TRIM(b.LOC)) = UPPER(TRIM(p.LOC))
+                 AND UPPER(TRIM(COALESCE(b.BOMNUM, ''))) = UPPER(TRIM(COALESCE(p.BOMNUM, '')))
+                {"WHERE UPPER(TRIM(b.ITEM)) = UPPER(TRIM(?)) AND" if item_filter else "WHERE"} p.ITEM IS NULL
+                """,
+                base_params,
+            ) or {}).get("c") or 0)
+            checks["bom_missing_production_method"] = no_pm_cnt
+            if no_pm_cnt > 0:
+                high.append(f"BOM(s) with no matching Production Method: {no_pm_cnt}")
+                for r in no_pm[:6]:
+                    issue_rows.append({"Severity": "High", "Issue Type": "Missing Production Method", "Parent Item": r["item"], "Component": r["subord"], "Location": r["loc"], "BOM #": r["bomnum"], "Detail": f"No production method for ({r['item']}, {r['loc']}, BOM {r['bomnum']})"})
+
+        # 9. Dead-end / unsourceable leaf components (not a BOM parent, not purchased, not sourced, no on-hand)
+        leaf_sources: List[str] = ['SELECT DISTINCT UPPER(TRIM(ITEM)) AS k FROM "if_snop_billofmaterials"']
+        if self.data.has_table("if_snop_purchmethod"):
+            evidence.append("if_snop_purchmethod")
+            leaf_sources.append('SELECT DISTINCT UPPER(TRIM(ITEM)) AS k FROM "if_snop_purchmethod"')
+        if self.data.has_table("if_snop_sourcing"):
+            evidence.append("if_snop_sourcing")
+            leaf_sources.append('SELECT DISTINCT UPPER(TRIM(ITEM)) AS k FROM "if_snop_sourcing"')
+        if self.data.has_table("if_snop_inventory"):
+            evidence.append("if_snop_inventory")
+            leaf_sources.append('SELECT DISTINCT UPPER(TRIM(ITEM)) AS k FROM "if_snop_inventory" WHERE TRY_CAST(QTY AS DOUBLE) > 0')
+        union_sql = " UNION ".join(leaf_sources)
+        dead_leaves = self.data.query(
+            f"""
+            WITH supply_known AS ({union_sql})
+            SELECT DISTINCT TRIM(b.ITEM) AS item, TRIM(b.SUBORD) AS subord, TRIM(b.LOC) AS loc, TRIM(b.BOMNUM) AS bomnum
+            FROM "if_snop_billofmaterials" b
+            LEFT JOIN supply_known s ON UPPER(TRIM(b.SUBORD)) = s.k
+            {"WHERE UPPER(TRIM(b.ITEM)) = UPPER(TRIM(?)) AND" if item_filter else "WHERE"} s.k IS NULL
+            LIMIT 12
+            """,
+            base_params,
+        )
+        dead_leaf_cnt = int((self.data.query_one(
+            f"""
+            WITH supply_known AS ({union_sql})
+            SELECT COUNT(DISTINCT UPPER(TRIM(b.SUBORD))) AS c
+            FROM "if_snop_billofmaterials" b
+            LEFT JOIN supply_known s ON UPPER(TRIM(b.SUBORD)) = s.k
+            {"WHERE UPPER(TRIM(b.ITEM)) = UPPER(TRIM(?)) AND" if item_filter else "WHERE"} s.k IS NULL
+            """,
+            base_params,
+        ) or {}).get("c") or 0)
+        checks["bom_unsourceable_leaf_components"] = dead_leaf_cnt
+        if dead_leaf_cnt > 0:
+            medium.append(f"Unsourceable leaf BOM components (no BOM, Purchase, Sourcing, or On-Hand): {dead_leaf_cnt}")
+            for r in dead_leaves[:6]:
+                issue_rows.append({"Severity": "Medium", "Issue Type": "Unsourceable Leaf Component", "Parent Item": r["item"], "Component": r["subord"], "Location": r["loc"], "BOM #": r["bomnum"], "Detail": "Leaf component has no purchase method, sourcing rule, or on-hand inventory"})
+
+        verdict = "Fail" if critical else ("Conditional Pass" if (high or medium) else "Pass")
+        return {
+            "Validation Scope": {
+                "week_id": week_id or "Latest",
+                "scenario_id": scenario_id or "Latest",
+                "item_id": item_filter or "All BOMs",
+                "focus_areas": ["bom_traversal"],
+                "duration_ms": int((time.perf_counter() - t0) * 1000),
+            },
+            "Readiness Verdict (Pass, Conditional Pass, Fail)": verdict,
+            "Checks Executed": checks,
+            "Issues Found (Critical, High, Medium, Low)": {"Critical": critical, "High": high, "Medium": medium, "Low": low},
+            "BOM Issue Details": issue_rows,
+            "Datasets and Evidence Used": {"tables": sorted(set(evidence))},
+            "Root Causes and Likely Planning Impact": [
+                "Circular BOM loops or invalid DRAWQTY values prevent BY ESP from exploding dependent demand cleanly.",
+                "Components missing SKU records, production methods, or leaf supply paths cause solver material shortages and unmet demand.",
+            ],
+            "Recommended Fixes (ordered by impact)": [
+                "Resolve all Critical BOM defects first (circular cycles, self-references, zero/negative DRAWQTY).",
+                "Create missing SKU master records and production methods for flagged BOM triplets.",
+                "Add purchase methods, sourcing lanes, or initial inventory for unsourceable leaf components.",
+            ],
+            "Confidence and Data Gaps": {"confidence": "High", "data_gaps": []},
+        }

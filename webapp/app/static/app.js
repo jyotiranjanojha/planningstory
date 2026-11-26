@@ -1649,12 +1649,368 @@ function renderInsights(data) {
   renderInsightsLanding();
 }
 
+function formatValidationKey(rawKey) {
+  const tokenMap = {
+    bom: 'BOM',
+    sku: 'SKU',
+    res: 'Resource',
+    loc: 'Location',
+    prod: 'Production',
+    purch: 'Purchase',
+    qty: 'Qty',
+    pct: '(%)',
+    dest: 'Destination',
+    leadtime: 'Lead Time',
+    nonpositive: 'Non-Positive',
+    planorder: 'Planned Order',
+    resloaddetail: 'Resource Load Detail',
+    skuexception: 'SKU Exception',
+    min: 'Min',
+    max: 'Max',
+    avg: 'Avg',
+    id: 'ID',
+  };
+  return String(rawKey || '')
+    .replace(/_count$/i, '')
+    .split('_')
+    .filter(Boolean)
+    .map((part) => {
+      const lower = part.toLowerCase();
+      if (tokenMap[lower]) return tokenMap[lower];
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(' ');
+}
+
+function isValidationMetricKey(key) {
+  const k = String(key || '').toLowerCase();
+  if (/(orphan|missing|without|invalid|negative|blank|nonpositive|exception|cycle|self_referencing|duplicate|unsourceable)/.test(k)) {
+    return false;
+  }
+  return /(_total|_rows|_lines|_min|_max|_avg|_pct|_depth|rows_in_scope|planorder_rows|demand_lines)/.test(k);
+}
+
+function formatValidationIssueText(text) {
+  const str = String(text || '').trim();
+  const match = str.match(/^([a-z0-9_]+)\s*:\s*(.+)$/i);
+  if (match && match[1].includes('_')) {
+    return `<strong>${escapeHtml(formatValidationKey(match[1]))}</strong>: ${escapeHtml(match[2])}`;
+  }
+  return escapeHtml(str);
+}
+
+function renderValidationDashboard(data, meta) {
+  const scope = data['Validation Scope'] || {};
+  const datasets = data['Datasets and Evidence Used'] || {};
+  const checks = data['Checks Executed'] || {};
+  const issuesObj = data['Issues Found (Critical, High, Medium, Low)'] || {};
+  const verdict = String(data['Readiness Verdict (Pass, Conditional Pass, Fail)'] || 'Unknown');
+  const rootCauses = Array.isArray(data['Root Causes and Likely Planning Impact'])
+    ? data['Root Causes and Likely Planning Impact']
+    : [];
+  const fixes = Array.isArray(data['Recommended Fixes (ordered by impact)'])
+    ? data['Recommended Fixes (ordered by impact)']
+    : [];
+  const confObj = data['Confidence and Data Gaps'] || {};
+  const confidence = confObj.confidence || 'Medium';
+  const dataGaps = Array.isArray(confObj.data_gaps) ? confObj.data_gaps : [];
+
+  const severities = [
+    { key: 'Critical', cls: 'critical', items: Array.isArray(issuesObj.Critical) ? issuesObj.Critical : [] },
+    { key: 'High', cls: 'high', items: Array.isArray(issuesObj.High) ? issuesObj.High : [] },
+    { key: 'Medium', cls: 'medium', items: Array.isArray(issuesObj.Medium) ? issuesObj.Medium : [] },
+    { key: 'Low', cls: 'low', items: Array.isArray(issuesObj.Low) ? issuesObj.Low : [] },
+  ];
+  const totalIssues = severities.reduce((acc, s) => acc + s.items.length, 0);
+
+  // Split Checks Executed into Integrity Checks (0 = pass) vs Coverage/Volume Metrics
+  const checkEntries = Object.entries(checks);
+  const integrityChecks = [];
+  const metricChecks = [];
+  checkEntries.forEach(([k, v]) => {
+    const num = Number(v);
+    if (isValidationMetricKey(k)) {
+      metricChecks.push({ key: k, label: formatValidationKey(k), value: v, num });
+    } else {
+      integrityChecks.push({
+        key: k,
+        label: formatValidationKey(k),
+        value: v,
+        num: Number.isFinite(num) ? num : 0,
+        passed: Number.isFinite(num) ? num === 0 : true,
+      });
+    }
+  });
+
+  const passedIntegrity = integrityChecks.filter((c) => c.passed).length;
+  const totalIntegrity = integrityChecks.length;
+
+  // Health score (0-100)
+  let score = 100;
+  if (totalIntegrity > 0) {
+    score = Math.round((passedIntegrity / totalIntegrity) * 100);
+  }
+  const critCount = severities[0].items.length;
+  const highCount = severities[1].items.length;
+  const medCount = severities[2].items.length;
+  if (totalIssues > 0) {
+    score = Math.max(12, Math.min(score, 100 - critCount * 28 - highCount * 15 - medCount * 7));
+  }
+  if (verdict === 'Pass' && totalIssues === 0) score = 100;
+  if (verdict === 'Fail') score = Math.min(score, 45);
+
+  const tone = verdict === 'Pass' ? 'pass' : (verdict === 'Fail' ? 'fail' : 'warn');
+  const ringColor = tone === 'pass' ? '#16a34a' : (tone === 'fail' ? '#dc2626' : '#d97706');
+  const radius = 34;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = circumference - (score / 100) * circumference;
+
+  const weekLabel = scope.week_id || (datasets.context_resolution && datasets.context_resolution.week_id) || 'Latest';
+  const scenarioLabel = scope.scenario_id || (datasets.context_resolution && datasets.context_resolution.scenario_id) || 'Latest';
+
+  const summarySentence = totalIssues === 0
+    ? `All ${totalIntegrity || checkEntries.length} validation checks passed with zero issues detected for Week ${weekLabel} (${scenarioLabel}).`
+    : `${totalIssues} issue${totalIssues === 1 ? '' : 's'} detected (${critCount} Critical, ${highCount} High, ${medCount} Medium) across ${checkEntries.length} executed checks.`;
+
+  // 1. Hero Readiness Banner with SVG Health Donut
+  const heroHtml = `
+    <section class="val-hero val-hero-${tone}">
+      <div class="val-hero-left">
+        <div class="val-donut-wrap" aria-label="Readiness score ${score}%">
+          <svg class="val-donut" viewBox="0 0 84 84" width="84" height="84">
+            <circle cx="42" cy="42" r="${radius}" fill="none" stroke="rgba(15,39,68,0.09)" stroke-width="8"></circle>
+            <circle cx="42" cy="42" r="${radius}" fill="none" stroke="${ringColor}" stroke-width="8"
+              stroke-linecap="round"
+              stroke-dasharray="${circumference.toFixed(1)}"
+              stroke-dashoffset="${dashOffset.toFixed(1)}"
+              transform="rotate(-90 42 42)"></circle>
+            <text x="42" y="46" text-anchor="middle" class="val-donut-pct">${score}%</text>
+          </svg>
+        </div>
+        <div class="val-hero-copy">
+          <div class="val-hero-top">
+            <span class="val-verdict-pill val-pill-${tone}">${escapeHtml(verdict)}</span>
+            <span class="val-meta-chip">Week: <strong>${escapeHtml(String(weekLabel))}</strong></span>
+            <span class="val-meta-chip">Scenario: <strong>${escapeHtml(String(scenarioLabel))}</strong></span>
+            <span class="val-meta-chip">Confidence: <strong>${escapeHtml(String(confidence))}</strong></span>
+          </div>
+          <h3>${escapeHtml(meta.label)}</h3>
+          <p class="val-hero-summary">${escapeHtml(summarySentence)}</p>
+        </div>
+      </div>
+    </section>
+  `;
+
+  // 2. Severity Distribution Bar + Full-Width Issue Findings
+  let issuesHtml = '';
+  if (totalIssues === 0) {
+    issuesHtml = `
+      <section class="val-section val-all-clear">
+        <span class="val-clear-icon" aria-hidden="true">✓</span>
+        <div>
+          <strong>All Clear — No Blocking or Warning Issues Found</strong>
+          <p>This gate passed cleanly with zero master-data, parameter, or solver violations.</p>
+        </div>
+      </section>
+    `;
+  } else {
+    const barSegments = severities
+      .filter((s) => s.items.length > 0)
+      .map((s) => {
+        const pct = Math.max(6, Math.round((s.items.length / totalIssues) * 100));
+        return `<div class="val-sev-seg val-sev-${s.cls}" style="width:${pct}%" title="${s.key}: ${s.items.length}">${s.key} (${s.items.length})</div>`;
+      })
+      .join('');
+
+    const findingCards = severities
+      .flatMap((s) => s.items.map((item) => ({ sev: s.key, cls: s.cls, text: item })))
+      .map((f) => `
+        <div class="val-finding-card val-finding-${f.cls}">
+          <span class="val-sev-badge val-sev-${f.cls}">${escapeHtml(f.sev)}</span>
+          <div class="val-finding-text">${formatValidationIssueText(f.text)}</div>
+        </div>
+      `)
+      .join('');
+
+    issuesHtml = `
+      <section class="val-section">
+        <div class="val-section-head">
+          <h4>Issues &amp; Findings Breakdown (${totalIssues})</h4>
+          <span class="val-section-sub">Ordered by severity — address Critical and High findings first</span>
+        </div>
+        <div class="val-severity-bar" role="img" aria-label="Issue severity distribution">${barSegments}</div>
+        <div class="val-findings-list">${findingCards}</div>
+      </section>
+    `;
+  }
+
+  // 3. Coverage & Volume Metrics (if any)
+  let metricsHtml = '';
+  if (metricChecks.length > 0) {
+    const cards = metricChecks.map((m) => {
+      const isPct = m.key.toLowerCase().includes('pct');
+      const displayVal = Number.isFinite(m.num)
+        ? (isPct ? `${m.num.toFixed(1)}%` : kgFormatNum(m.num))
+        : escapeHtml(String(m.value));
+      const pctBar = isPct && Number.isFinite(m.num)
+        ? `<div class="val-mini-track"><div class="val-mini-fill ${m.num < 50 ? 'bad' : (m.num < 80 ? 'warn' : 'good')}" style="width:${Math.max(4, Math.min(100, m.num))}%"></div></div>`
+        : '';
+      return `
+        <div class="val-metric-card">
+          <span class="val-metric-label">${escapeHtml(m.label)}</span>
+          <strong class="val-metric-val">${displayVal}</strong>
+          ${pctBar}
+        </div>
+      `;
+    }).join('');
+    metricsHtml = `
+      <section class="val-section">
+        <div class="val-section-head">
+          <h4>Dataset Coverage &amp; Key Metrics</h4>
+        </div>
+        <div class="val-metrics-grid">${cards}</div>
+      </section>
+    `;
+  }
+
+  // 4. Integrity Checks Visual Status Table
+  let checksHtml = '';
+  if (integrityChecks.length > 0) {
+    const maxViolation = Math.max(1, ...integrityChecks.map((c) => c.num));
+    // Show failed checks first so planners immediately see problems
+    const sortedChecks = [...integrityChecks].sort((a, b) => Number(a.passed) - Number(b.passed) || b.num - a.num);
+    const rows = sortedChecks.map((c) => {
+      const barPct = c.num > 0 ? Math.max(8, Math.round((c.num / maxViolation) * 100)) : 0;
+      const statusBadge = c.passed
+        ? '<span class="val-check-pill pass">✓ Pass</span>'
+        : '<span class="val-check-pill alert">! Alert</span>';
+      return `
+        <tr class="${c.passed ? '' : 'val-row-alert'}">
+          <td class="val-check-name">${escapeHtml(c.label)}</td>
+          <td class="val-check-status">${statusBadge}</td>
+          <td class="val-check-bar-cell">
+            ${c.num > 0
+              ? `<div class="val-check-bar-track"><div class="val-check-bar-fill" style="width:${barPct}%"></div></div>`
+              : '<span class="val-zero-label">0 violations</span>'}
+          </td>
+          <td class="val-check-count">${kgFormatNum(c.num)}</td>
+        </tr>
+      `;
+    }).join('');
+
+    checksHtml = `
+      <section class="val-section">
+        <div class="val-section-head">
+          <h4>Integrity Checks Executed (${passedIntegrity}/${totalIntegrity} Passed)</h4>
+          <span class="val-section-sub">Checks expecting 0 violations</span>
+        </div>
+        <div class="val-table-wrap">
+          <table class="val-checks-table">
+            <thead>
+              <tr>
+                <th>Validation Rule</th>
+                <th>Status</th>
+                <th>Violation Distribution</th>
+                <th style="text-align:right">Count</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </section>
+    `;
+  }
+
+  // 4b. Concrete Offending BOM Rows table (when BOM Issue Details are present)
+  const bomIssueDetails = Array.isArray(data['BOM Issue Details']) ? data['BOM Issue Details'] : [];
+  let bomTableHtml = '';
+  if (bomIssueDetails.length > 0) {
+    const bomRowsHtml = bomIssueDetails.map((row) => {
+      const sev = String(row.Severity || 'Medium');
+      const sevCls = sev.toLowerCase();
+      return `
+        <tr>
+          <td><span class="val-sev-badge val-sev-${escapeHtml(sevCls)}">${escapeHtml(sev)}</span></td>
+          <td class="val-check-name">${escapeHtml(String(row['Issue Type'] || ''))}</td>
+          <td><code>${escapeHtml(String(row['Parent Item'] || ''))}</code></td>
+          <td><code>${escapeHtml(String(row.Component || ''))}</code></td>
+          <td>${escapeHtml(String(row.Location || ''))}</td>
+          <td>${escapeHtml(String(row['BOM #'] || ''))}</td>
+          <td>${escapeHtml(String(row.Detail || ''))}</td>
+        </tr>
+      `;
+    }).join('');
+    bomTableHtml = `
+      <section class="val-section">
+        <div class="val-section-head">
+          <h4>Flagged BOM Records (${bomIssueDetails.length} sample${bomIssueDetails.length === 1 ? '' : 's'})</h4>
+          <span class="val-section-sub">Exact parent/component rows requiring master-data correction</span>
+        </div>
+        <div class="val-table-wrap">
+          <table class="val-checks-table">
+            <thead>
+              <tr>
+                <th>Severity</th>
+                <th>Issue Type</th>
+                <th>Parent Item</th>
+                <th>Component</th>
+                <th>Loc</th>
+                <th>BOM #</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody>${bomRowsHtml}</tbody>
+          </table>
+        </div>
+      </section>
+    `;
+  }
+
+  // 5. Planning Impact & Recommended Fixes (2 clean readable cards)
+  const guidanceHtml = (rootCauses.length || fixes.length || dataGaps.length) ? `
+    <section class="val-insights-grid">
+      ${rootCauses.length ? `
+        <div class="val-section val-guidance-card">
+          <h4>Likely Planning Impact</h4>
+          <ul class="val-clean-list">
+            ${rootCauses.map((r) => `<li>${escapeHtml(String(r))}</li>`).join('')}
+          </ul>
+        </div>
+      ` : ''}
+      ${fixes.length ? `
+        <div class="val-section val-guidance-card">
+          <h4>Recommended Next Steps</h4>
+          <ol class="val-clean-list val-ordered-list">
+            ${fixes.map((f) => `<li>${escapeHtml(String(f))}</li>`).join('')}
+          </ol>
+        </div>
+      ` : ''}
+    </section>
+  ` : '';
+
+  // 6. Collapsible Technical Evidence & Scope Metadata
+  const notes = (datasets.context_resolution && Array.isArray(datasets.context_resolution.notes))
+    ? datasets.context_resolution.notes
+    : [];
+  const rawDetailsHtml = `
+    <details class="val-raw-details">
+      <summary>Technical Evidence, Scope &amp; Dataset Metadata</summary>
+      <div class="val-raw-body">
+        ${notes.length ? `<div class="val-notes-box"><strong>Context Resolution:</strong><ul>${notes.map((n) => `<li>${escapeHtml(String(n))}</li>`).join('')}</ul></div>` : ''}
+        ${dataGaps.length ? `<div class="val-notes-box"><strong>Data Gaps:</strong><ul>${dataGaps.map((g) => `<li>${escapeHtml(String(g))}</li>`).join('')}</ul></div>` : ''}
+        ${renderObject({ 'Validation Scope': scope, 'Datasets and Evidence Used': datasets })}
+      </div>
+    </details>
+  `;
+
+  return `<div class="val-dashboard">${heroHtml}${issuesHtml}${bomTableHtml}${metricsHtml}${checksHtml}${guidanceHtml}${rawDetailsHtml}</div>`;
+}
+
 function renderValidationTabPanel(tabName, tab) {
   const meta = VALIDATION_TAB_META[tabName];
   const isActive = tabName === validationState.activeTab;
   const isDataQuality = tabName === 'data_quality';
   const isBomTraversal = tabName === 'bom_traversal';
-  const isProductionRoute = tabName === 'production_route';
 
   const status = tab.loading
     ? '<div class="insights-empty">Running validation...</div>'
@@ -1668,32 +2024,7 @@ function renderValidationTabPanel(tabName, tab) {
 
   let summary = '';
   if (tab.data) {
-    const scope = tab.data['Validation Scope'] || {};
-    const verdict = tab.data['Readiness Verdict (Pass, Conditional Pass, Fail)'] || 'Unknown';
-    const issues = tab.data['Issues Found (Critical, High, Medium, Low)'] || {};
-    const checks = tab.data['Checks Executed'] || {};
-    const criticalCount = Array.isArray(issues.Critical) ? issues.Critical.length : 0;
-    const highCount = Array.isArray(issues.High) ? issues.High.length : 0;
-    const mediumCount = Array.isArray(issues.Medium) ? issues.Medium.length : 0;
-    const lowCount = Array.isArray(issues.Low) ? issues.Low.length : 0;
-    const checksCount = Object.keys(checks).length || Object.keys(tab.data['Traversal Summary'] || {}).length;
-    const bomMap = isBomTraversal ? renderBomTraversalMindMap(tab.data, tabName) : '';
-    const resultDetails = isBomTraversal
-      ? renderBomTraversalDetails(tab.data)
-      : `<section class="insights-card"><h3>${meta.label} Results</h3>${renderObject(tab.data)}</section>`;
-    const verdictClass = verdict === 'Pass' ? 'rc-stat-good' : (verdict === 'Fail' ? 'rc-stat-bad' : 'rc-stat-warn');
-    summary = `
-      <div class="rc-stats-strip">
-        <div class="rc-stat-card ${verdictClass}"><span class="rc-stat-label">Verdict</span><span class="rc-stat-value">${escapeHtml(verdict)}</span></div>
-        <div class="rc-stat-card ${criticalCount > 0 ? 'rc-stat-bad' : 'rc-stat-good'}"><span class="rc-stat-label">Critical</span><span class="rc-stat-value">${criticalCount}</span></div>
-        <div class="rc-stat-card ${highCount > 0 ? 'rc-stat-warn' : 'rc-stat-good'}"><span class="rc-stat-label">High</span><span class="rc-stat-value">${highCount}</span></div>
-        <div class="rc-stat-card"><span class="rc-stat-label">Medium</span><span class="rc-stat-value">${mediumCount}</span></div>
-        <div class="rc-stat-card"><span class="rc-stat-label">Low</span><span class="rc-stat-value">${lowCount}</span></div>
-        <div class="rc-stat-card"><span class="rc-stat-label">Checks</span><span class="rc-stat-value">${checksCount}</span></div>
-      </div>
-      ${bomMap}
-      ${resultDetails}
-    `;
+    summary = renderValidationDashboard(tab.data, meta);
   }
 
   const reportActions = `
@@ -1807,10 +2138,7 @@ function renderValidationLanding() {
     });
   }
 
-  if (activeTab === 'bom_traversal' && activeTabData && activeTabData.data) {
-    mountBomTraversalGraph(activePanel, activeTabData.data, activeTab);
-  }
-
+  // BOM Traversal now uses the issue-focused visual validation dashboard (no giant graph)
 }
 
 async function runValidationForTab(tabName) {
@@ -2246,12 +2574,13 @@ function setLlmControls() {
 
 async function loadLlmModels() {
   try {
-    const res = await fetch('/api/llm/models');
+    const res = await fetch('/api/llm/models', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const models = Array.isArray(data.models)
       ? [...new Set(data.models.filter((modelName) => typeof modelName === 'string' && modelName.trim()))]
       : [];
-    const defaultModel = data.default_model || 'gemma3:latest';
+    const defaultModel = data.default_model || 'qwen2.5-coder:latest';
     const bestAvailable = data.best_available || defaultModel;
     const modelInfo = data.model_info || {};
 
@@ -2272,8 +2601,8 @@ async function loadLlmModels() {
         const option = document.createElement('option');
         option.value = modelName;
         const info = modelInfo[modelName] || {};
-        const label = info.recommended ? `★ ${modelName}` : modelName;
-        option.textContent = info.note ? `${label}  —  ${info.note}` : label;
+        option.textContent = info.recommended ? `★ ${modelName}` : modelName;
+        if (info.note) option.title = info.note;
         if (modelName === bestAvailable) {
           option.selected = true;
         }
@@ -2282,16 +2611,12 @@ async function loadLlmModels() {
     }
 
     if (!data.reachable) {
-      chatLlmStatus.textContent = 'Ollama is not reachable. Chat will fall back to built-in grounded responses.';
+      chatLlmStatus.textContent = 'Ollama is not reachable. Using grounded responses.';
     } else {
-      const best = bestAvailable !== defaultModel
-        ? `Auto-selected best available: ${bestAvailable}`
-        : `Using model: ${bestAvailable}`;
-      chatLlmStatus.textContent = best;
       setLlmControls();
     }
   } catch (err) {
-    chatLlmStatus.textContent = 'Could not load Ollama models. Chat can still run with built-in grounded responses.';
+    chatLlmStatus.textContent = 'Could not load Ollama models.';
   }
   setLlmControls();
 }
@@ -2392,8 +2717,34 @@ async function sendValidationEmail(tab, tabName) {
   return data;
 }
 
-document.getElementById('summaryBtn').addEventListener('click', () => {
-  callApi('/api/datasets/summary');
+document.getElementById('summaryBtn').addEventListener('click', async () => {
+  activatePanel('chat');
+  const btn = document.getElementById('summaryBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+  try {
+    const res = await fetch('/api/datasets/summary', { cache: 'no-store' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    const inFiles = Array.isArray(data.input_files) ? data.input_files : [];
+    const outFiles = Array.isArray(data.output_files) ? data.output_files : [];
+    const md = [
+      `### Loaded BY ESP Dataset Summary`,
+      `Connected to **${data.input_file_count || inFiles.length} input** snapshots (\`by_input/\`) and **${data.output_file_count || outFiles.length} output** snapshots (\`by_output/\`).`,
+      inFiles.length ? `\n**Input Tables (${inFiles.length}):**\n` + inFiles.slice(0, 10).map((f) => `- \`${f}\``).join('\n') + (inFiles.length > 10 ? `\n- *…and ${inFiles.length - 10} more*` : '') : '',
+      outFiles.length ? `\n**Output Tables (${outFiles.length}):**\n` + outFiles.slice(0, 10).map((f) => `- \`${f}\``).join('\n') + (outFiles.length > 10 ? `\n- *…and ${outFiles.length - 10} more*` : '') : '',
+    ].filter(Boolean).join('\n');
+    appendChatMessage('assistant', md, {
+      'Suggested Follow-ups': [
+        'Show top 5 unmet demand items',
+        'Show which resource is constrained across supply chain',
+        'Run master data validation check',
+      ],
+    });
+  } catch (err) {
+    appendChatMessage('assistant', `Could not load dataset summary: ${err.message}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Dataset Summary'; }
+  }
 });
 
 async function submitChat() {
@@ -2501,6 +2852,17 @@ async function submitChat() {
               }
             }
           } catch { /* ignore malformed chunk */ }
+        }
+      }
+      // Flush any trailing line without a final newline
+      if (buf && buf.trim().startsWith('data: ')) {
+        const payload = buf.trim().slice(6).trim();
+        if (payload && payload !== '[DONE]') {
+          try {
+            const token = JSON.parse(payload);
+            if (typeof token === 'string') fullText += token;
+            else if (token && Array.isArray(token.__followups__)) streamedFollowups = token.__followups__;
+          } catch { /* ignore */ }
         }
       }
     }
@@ -2966,6 +3328,35 @@ document.getElementById('rootCauseBtn').addEventListener('click', async () => {
   }
 });
 
+async function checkBackendHealth() {
+  const pill = document.getElementById('backendHealthPill');
+  if (!pill) return;
+  const labelEl = pill.querySelector('.health-label');
+  const t0 = performance.now();
+  try {
+    const res = await fetch('/api/v2/health', { cache: 'no-store' });
+    const ms = Math.round(performance.now() - t0);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const views = data.duckdb_views || data.total_views || (data.catalog && data.catalog.total_views) || 40;
+    const proxied = res.headers.get('X-Proxied-By') ? 'via Node Gateway' : 'Direct';
+    pill.className = 'health-pill health-ok';
+    if (labelEl) labelEl.textContent = 'Connected';
+    pill.title = `Backend healthy (${ms}ms, ${proxied}) · ${views} BY ESP views loaded`;
+  } catch (err) {
+    pill.className = 'health-pill health-err';
+    if (labelEl) labelEl.textContent = 'Offline';
+    pill.title = `Backend unreachable: ${err.message}. Click to retry.`;
+  }
+}
+
+const healthPillEl = document.getElementById('backendHealthPill');
+if (healthPillEl) {
+  healthPillEl.addEventListener('click', () => checkBackendHealth());
+}
+
+checkBackendHealth();
+setInterval(checkBackendHealth, 30000);
 loadLlmModels();
 loadAuthProfile().finally(() => {
   renderValidationLanding();

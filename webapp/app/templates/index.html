@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Intel Foundry Planning AI Assistant</title>
-    <link rel="icon" type="image/png" href="/static/intelfoundrylogo.png" />
-    <link rel="stylesheet" href="/static/styles.css?v=12" />
+    <link rel="icon" type="image/svg+xml" href="/static/intel-logo.svg" />
+    <link rel="stylesheet" href="/static/styles.css?v=18" />
   </head>
   <body>
     <div class="bg-grid"></div>
@@ -14,13 +14,15 @@
     <main class="layout">
       <header class="hero">
         <section class="hero-main">
-          <img class="brand-logo" src="/static/intelfoundrylogo.png" alt="Intel Foundry logo" />
-          <h1>Intel Foundry Planning AI Assistant</h1>
-          <p class="hero-tagline"><em>Unlock Planning Confidence with Automated Validation, Scenario Analysis, and Root-Cause Intelligence</em></p>
-          <button id="summaryBtn" class="btn primary">Load Dataset Summary</button>
+          <img class="brand-logo" src="/static/intel-logo.svg" alt="Intel logo" />
+          <span class="hero-divider" aria-hidden="true"></span>
+          <div class="hero-brand-copy">
+            <h1>Intel Foundry Planning AI Assistant</h1>
+            <p class="hero-tagline">Automated Validation, Scenario Analysis, Knowledge Graph &amp; Root-Cause Intelligence</p>
+          </div>
         </section>
         <aside class="hero-side">
-          <div id="authUserBadge" class="auth-user-badge" aria-live="polite">Checking sign-in…</div>
+          <button id="summaryBtn" class="btn ghost hero-summary-btn" type="button">Dataset Summary</button>
           <div class="global-model-card">
             <div class="global-model-controls">
               <label class="toggle-row compact-toggle" for="chatLlmEnabled">
@@ -28,12 +30,17 @@
                 <span>Ollama</span>
               </label>
               <div class="inline-field compact-field">
-                <label for="chatLlmModel">Model</label>
-                <select id="chatLlmModel"></select>
+                <label for="chatLlmModel" class="sr-only">Model</label>
+                <select id="chatLlmModel" aria-label="Ollama model"></select>
               </div>
             </div>
             <div id="chatLlmStatus" class="settings-note compact-note">Loading Ollama models...</div>
           </div>
+          <div id="backendHealthPill" class="health-pill health-checking" title="Checking backend connection…">
+            <span class="health-dot" aria-hidden="true"></span>
+            <span class="health-label">Connecting…</span>
+          </div>
+          <div id="authUserBadge" class="auth-user-badge" aria-live="polite">Checking sign-in…</div>
         </aside>
       </header>
 
@@ -121,14 +128,32 @@
           </article>
 
           <article class="card feature-panel" data-panel="comparison">
-            <h2>Scenario Comparison</h2>
-            <div class="field-grid">
-              <input id="cmpWeek" placeholder="Week ID = CAPTURE_WK (optional, latest by default)" />
-              <input id="cmpBase" placeholder="Base Scenario = SIMULATION_NAME" />
-              <input id="cmpCompare" placeholder="Compare Scenario = SIMULATION_NAME" />
-              <input id="cmpSite" placeholder="Plant (optional)" />
+            <div class="card-top compact-top">
+              <div>
+                <h2>Scenario Comparison</h2>
+                <p class="hint" style="margin:0">Compare baseline vs. target planning runs side-by-side.</p>
+              </div>
+              <span class="rc-badge">BY ESP</span>
             </div>
-            <button id="compareBtn" class="btn">Run Comparison</button>
+            <div class="field-grid">
+              <div class="rc-field-wrap">
+                <label class="rc-label" for="cmpWeek">Week ID <span class="rc-optional">optional</span></label>
+                <input id="cmpWeek" placeholder="CAPTURE_WK (latest by default)" />
+              </div>
+              <div class="rc-field-wrap">
+                <label class="rc-label" for="cmpBase">Base Scenario</label>
+                <input id="cmpBase" placeholder="SIMULATION_NAME (baseline)" />
+              </div>
+              <div class="rc-field-wrap">
+                <label class="rc-label" for="cmpCompare">Compare Scenario</label>
+                <input id="cmpCompare" placeholder="SIMULATION_NAME (target)" />
+              </div>
+              <div class="rc-field-wrap">
+                <label class="rc-label" for="cmpSite">Plant / Site <span class="rc-optional">optional</span></label>
+                <input id="cmpSite" placeholder="Site filter" />
+              </div>
+            </div>
+            <button id="compareBtn" class="btn primary" type="button">Run Comparison</button>
           </article>
 
           <article class="card feature-panel" data-panel="rootcause">
@@ -214,10 +239,19 @@
                 <datalist id="kgItemList"></datalist>
               </div>
               <div class="split-grid">
-                <input id="kgWeek" placeholder="Week ID = CAPTURE_WK (optional)" />
-                <input id="kgScenario" placeholder="Scenario ID = SIMULATION_NAME (optional)" />
+                <div class="rc-field-wrap">
+                  <label class="rc-label" for="kgWeek">Week ID <span class="rc-optional">optional</span></label>
+                  <input id="kgWeek" placeholder="CAPTURE_WK" />
+                </div>
+                <div class="rc-field-wrap">
+                  <label class="rc-label" for="kgScenario">Scenario <span class="rc-optional">optional</span></label>
+                  <input id="kgScenario" placeholder="SIMULATION_NAME" />
+                </div>
               </div>
-              <input id="kgSite" placeholder="Plant / Site (optional)" />
+              <div class="rc-field-wrap">
+                <label class="rc-label" for="kgSite">Plant / Site <span class="rc-optional">optional</span></label>
+                <input id="kgSite" placeholder="Site filter" />
+              </div>
             </div>
             <button id="graphBtn" class="btn primary" type="button">Show Knowledge Graph</button>
           </article>
@@ -327,6 +361,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=23"></script>
+    <script src="/static/app.js?v=28"></script>
   </body>
 </html>
