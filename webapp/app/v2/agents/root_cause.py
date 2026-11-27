@@ -271,51 +271,195 @@ class RootCauseAgent:
         cap_exc_total = sum(int(r.get("occurrences") or 0) for r in res_excs)
         duration_ms = int((time.perf_counter() - t0) * 1000)
 
-        # Build question-tailored markdown narrative
+        # ── 6. Build Business-Focused 3-Pillar Executive Summary ─────────────
+        # (1) What is the problem
+        problem_bullets: List[str] = []
+        if demand_qty <= 0:
+            problem_headline = f"No independent demand is recorded for item `{item_id}` in the selected scope."
+            problem_bullets.append("0 demand units found in `by_if_snop_out_inddmdview` for the current item/week/scenario filter.")
+        elif unmet_qty > 0:
+            problem_headline = (
+                f"Item `{item_id}` has {_fmt_num(unmet_qty)} unmet units out of {_fmt_num(demand_qty)} total demand "
+                f"({fill_rate:.1f}% fill rate; status: {meet_status.replace('_', ' ')})."
+            )
+            problem_bullets.append(
+                f"Scheduled supply covers **{_fmt_num(sched_qty)}** units, leaving a shortfall of **{_fmt_num(unmet_qty)}** units."
+            )
+        elif late_qty > 0:
+            problem_headline = (
+                f"Item `{item_id}` demand ({_fmt_num(demand_qty)} units) is fully scheduled but {_fmt_num(late_qty)} units are delivered late."
+            )
+        else:
+            problem_headline = (
+                f"Item `{item_id}` demand ({_fmt_num(demand_qty)} units) is fully met on time (100.0% fill rate)."
+            )
+
+        if late_qty > 0:
+            problem_bullets.append(f"**{_fmt_num(late_qty)}** scheduled units are **late** (scheduled after need date).")
+        if early_qty > 0 and qtype in {"why_early", "why_late", "full_diagnosis"}:
+            problem_bullets.append(f"**{_fmt_num(early_qty)}** scheduled units are **early** (scheduled before need date).")
+        if qtype == "eoh" or _sf(eoh_row.get("stockout_qty")) > 0:
+            problem_bullets.append(
+                f"On-hand inventory: **{_fmt_num(oh_qty)}** | Max Constrained Proj OH: **{_fmt_num(eoh_row.get('max_proj_oh', 0))}** | "
+                f"Stockout Qty: **{_fmt_num(eoh_row.get('stockout_qty', 0))}** | Below Safety Stock: **{_fmt_num(eoh_row.get('stocklow_qty', 0))}**."
+            )
+        if qtype == "supply_pegging" and pegging_rows:
+            top_peg = "; ".join(
+                f"`{p['supply_item']}` @ `{p['supply_loc']}` ({_fmt_num(p['pegged_qty'])})"
+                for p in pegging_rows[:4]
+            )
+            problem_bullets.append(f"Primary pegged supply sources: {top_peg}.")
+
+        # (2) Why the problem happened
+        why_bullets: List[str] = []
+        for e in sku_excs[:5]:
+            why_bullets.append(
+                f"SKU Exception — **{e['reason']}** ({_fmt_num(e['occurrences'])} occurrences, severity: {e['severity']})."
+            )
+        for r in res_excs[:5]:
+            why_bullets.append(
+                f"Capacity Constraint on resource `{r['res']}` — **{r['reason']}** ({_fmt_num(r['occurrences'])} occurrences)."
+            )
+        if competing_count > 0:
+            why_bullets.append(
+                f"Upstream supply contention: **{_fmt_num(competing_count)}** competing demand pegging rows share upstream supply with `{item_id}` "
+                f"(priority tiers: {int(dmd.get('priority_levels') or 0)}, range {dmd.get('min_priority')}–{dmd.get('max_priority')})."
+            )
+        if bom_links == 0 and sourcing_rules == 0 and unmet_qty > 0:
+            why_bullets.append(
+                f"Master data gap: `{item_id}` has **0 BOM links** and **0 sourcing rules** in `if_snop_billofmaterials` / `if_snop_sourcing`."
+            )
+        elif qtype == "bom_sourcing_gaps":
+            why_bullets.append(
+                f"Master data footprint: **{bom_links}** BOM component link(s) and **{sourcing_rules}** sourcing rule(s) defined."
+            )
+        elif qtype == "capacity_constraints" and not res_excs:
+            why_bullets.append(
+                f"Linked resources: {', '.join(f'`{r}`' for r in affected_resources[:6]) or 'None found'} (0 capacity exceptions logged)."
+            )
+
+        if why_bullets:
+            why_headline = f"Identified {len(why_bullets)} confirmed driver(s) across BY ESP exception, capacity, and pegging tables."
+        elif unmet_qty > 0 or late_qty > 0:
+            why_headline = f"No direct SKU or resource exceptions were logged on `{item_id}`; constraint likely sits upstream."
+            why_bullets.append(
+                f"Inspect upstream BOM components ({bom_links} links) and sourcing rules ({sourcing_rules}) for hidden shortages."
+            )
+        else:
+            why_headline = "No blocking supply, capacity, or master-data exceptions detected."
+            why_bullets.append("Supply, capacity, and lead times are sufficient to satisfy all demand in this scope.")
+
+        # (3) Possible options to fix the problem (evidence-driven)
+        fix_options: List[Dict[str, str]] = []
+        sku_reasons_lower = " ".join(str(e.get("reason") or "").lower() for e in sku_excs)
+
+        if res_excs:
+            top_res = ", ".join(f"`{r['res']}`" for r in res_excs[:3])
+            fix_options.append({
+                "action": f"Relieve bottleneck capacity on {top_res}",
+                "detail": "Evaluate extra shifts/calendar capacity, alternate production methods/routings, or load balancing across qualified sites.",
+                "impact": "High",
+                "owner": "Capacity Planning",
+            })
+
+        if any(k in sku_reasons_lower for k in ("bom", "parent sku", "production method")):
+            fix_options.append({
+                "action": "Correct invalid BOM / production method master data",
+                "detail": "Fix flagged BOM numbers, parent SKU mappings, or routing definitions in `if_snop_billofmaterials` / `if_snop_productionmethod` and re-solve.",
+                "impact": "High",
+                "owner": "Master Data",
+            })
+
+        if "material" in sku_reasons_lower:
+            fix_options.append({
+                "action": "Expedite constrained upstream material / components",
+                "detail": "Pull in open purchase orders (`planpurch` / `schedrcpts`), qualify an alternate BOM/substitute component, or reallocate component stock.",
+                "impact": "High",
+                "owner": "Materials / Sourcing",
+            })
+
+        if "lead time" in sku_reasons_lower:
+            fix_options.append({
+                "action": "Compress or expedite production / sourcing lead times",
+                "detail": "Review lead-time parameters in `if_snop_sourcing` / `if_snop_productionmethod`, split lots, or use expedited transport to pull in receipt dates.",
+                "impact": "Medium",
+                "owner": "Supply Planning",
+            })
+
+        if competing_count > 0 and (unmet_qty > 0 or late_qty > 0):
+            fix_options.append({
+                "action": "Re-prioritize demand or rebalance shared supply allocation",
+                "detail": f"Review demand priority rules against the {_fmt_num(competing_count)} competing pegging rows sharing upstream supply with `{item_id}`.",
+                "impact": "Medium",
+                "owner": "Demand / Supply Planning",
+            })
+
+        if (bom_links == 0 or sourcing_rules == 0) and unmet_qty > 0:
+            fix_options.append({
+                "action": "Add missing BOM or sourcing rules",
+                "detail": f"Item currently has {bom_links} BOM link(s) and {sourcing_rules} sourcing rule(s); verify active make/buy sourcing paths in master data.",
+                "impact": "High",
+                "owner": "Master Data / Sourcing",
+            })
+
+        if late_qty > 0 and not any("lead time" in o["action"].lower() for o in fix_options):
+            fix_options.append({
+                "action": f"Pull in {_fmt_num(late_qty)} late scheduled units",
+                "detail": "Evaluate pre-building ahead of peak load, expediting transit, or aligning commit dates with the business/customer.",
+                "impact": "Medium",
+                "owner": "Supply Planning",
+            })
+
+        if not fix_options:
+            if unmet_qty > 0:
+                fix_options.append({
+                    "action": "Trace upstream BOM lineage in Knowledge Graph",
+                    "detail": f"Drill into child components ({bom_links} BOM links) to isolate which lower-level material or resource is gating `{item_id}`.",
+                    "impact": "Medium",
+                    "owner": "Supply Planning",
+                })
+            else:
+                fix_options.append({
+                    "action": "No immediate corrective action required",
+                    "detail": "Demand is fulfilled; monitor safety-stock coverage and bottleneck resource utilization in upcoming planning cycles.",
+                    "impact": "Low",
+                    "owner": "Supply Planning",
+                })
+
+        executive_summary = {
+            "what_is_the_problem": {
+                "headline": problem_headline,
+                "bullets": problem_bullets,
+            },
+            "why_it_happened": {
+                "headline": why_headline,
+                "bullets": why_bullets,
+            },
+            "possible_options_to_fix": {
+                "headline": f"{len(fix_options)} actionable option(s) prioritized from BY ESP evidence.",
+                "options": fix_options,
+            },
+        }
+
+        # Build structured 3-section markdown narrative (for API consumers, exports, and fallback rendering)
         lines: List[str] = [
             f"### {qlabel} — Item `{item_id}`",
-            f"Demand is **{_fmt_num(demand_qty)}**, scheduled supply is **{_fmt_num(sched_qty)}**, unmet is **{_fmt_num(unmet_qty)}** (**{fill_rate:.1f}%** fill rate; status: **{meet_status.replace('_', ' ')}**).",
+            "\n#### 1. What is the Problem",
+            problem_headline,
         ]
+        for b in problem_bullets:
+            lines.append(f"- {b}")
 
-        if qtype in {"why_late", "why_early"}:
-            lines.append("\n#### Timing Breakdown")
-            lines.append(f"- **Late Scheduled Qty:** {_fmt_num(late_qty)}")
-            lines.append(f"- **Early Scheduled Qty:** {_fmt_num(early_qty)}")
-            lines.append(f"- **On-Time Scheduled Qty:** {_fmt_num(max(sched_qty - late_qty - early_qty, 0))}")
-        elif qtype == "eoh":
-            lines.append("\n#### Inventory & EOH Position")
-            lines.append(f"- **Current On-Hand (`if_snop_inventory`):** {_fmt_num(oh_qty)}")
-            lines.append(f"- **Max Constrained Projected OH:** {_fmt_num(eoh_row.get('max_proj_oh', 0))}")
-            lines.append(f"- **Constrained Stockout Qty:** {_fmt_num(eoh_row.get('stockout_qty', 0))}")
-            lines.append(f"- **Below Safety Stock Qty:** {_fmt_num(eoh_row.get('stocklow_qty', 0))}")
-        elif qtype == "bom_sourcing_gaps":
-            lines.append("\n#### BOM & Sourcing Readiness")
-            lines.append(f"- **BOM component links (`if_snop_billofmaterials`):** {bom_links}")
-            lines.append(f"- **Sourcing rules (`if_snop_sourcing`):** {sourcing_rules}")
-        elif qtype == "priority_conflict":
-            lines.append("\n#### Priority & Competing Demand")
-            lines.append(f"- **Competing demand pegging rows sharing upstream supply:** {_fmt_num(competing_count)}")
-            lines.append(f"- **Distinct priority tiers on this item:** {int(dmd.get('priority_levels') or 0)} (range {dmd.get('min_priority')} – {dmd.get('max_priority')})")
-        elif qtype == "supply_pegging" and pegging_rows:
-            lines.append("\n#### Top Supply Pegging Sources")
-            for p in pegging_rows[:6]:
-                lines.append(f"- `{p['supply_item']}` @ `{p['supply_loc']}` via `{p['supply_method'] or p['supply_type']}`: **{_fmt_num(p['pegged_qty'])}** pegged")
+        lines.append("\n#### 2. Why the Problem Happened")
+        lines.append(why_headline)
+        for b in why_bullets:
+            lines.append(f"- {b}")
 
-        if sku_excs:
-            lines.append("\n#### Confirmed SKU Exceptions")
-            for e in sku_excs[:5]:
-                lines.append(f"- **{e['reason']}** ({_fmt_num(e['occurrences'])} occurrences, severity: {e['severity']})")
-        if res_excs:
-            lines.append("\n#### Confirmed Resource / Capacity Constraints")
-            for r in res_excs[:5]:
-                lines.append(f"- Resource `{r['res']}`: **{r['reason']}** ({_fmt_num(r['occurrences'])} occurrences)")
-        elif qtype == "capacity_constraints":
-            lines.append("\n#### Resource / Capacity Constraints")
-            lines.append(f"- Linked resources: {', '.join(f'`{r}`' for r in affected_resources[:6]) or 'None found'} (0 capacity exceptions logged).")
-
-        if not sku_excs and not res_excs and unmet_qty > 0:
-            lines.append("\n#### Next Investigation")
-            lines.append(f"- No direct SKU/resource exceptions logged on `{item_id}`; inspect upstream BOM components ({bom_links} links) or competing demand ({_fmt_num(competing_count)} shared-supply rows).")
+        lines.append("\n#### 3. Possible Options to Fix the Problem")
+        for idx, opt in enumerate(fix_options, start=1):
+            lines.append(
+                f"{idx}. **{opt['action']}** *(Impact: {opt['impact']} | Owner: {opt['owner']})* — {opt['detail']}"
+            )
 
         lines.append(f"\n*Grounded BY ESP analysis completed in {duration_ms}ms.*")
 
@@ -343,6 +487,7 @@ class RootCauseAgent:
             "llm_used": False,
             "llm_model": None,
             "stats": stats,
+            "executive_summary": executive_summary,
             "narrative": "\n".join(lines),
             "raw_data": {
                 "Stats": stats,

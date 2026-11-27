@@ -3238,10 +3238,11 @@ function renderRootCauseOutput(data) {
     strip.style.display = '';
   }
 
-  // ── narrative + one-click drill-through actions ──────────────────────────
+  // ── 3-pillar business summary + narrative + drill-through actions ────────
   const pane = document.getElementById('rcNarrativePane');
   if (pane) {
     const item = stats.item ? String(stats.item) : '';
+    const exec = data.executive_summary || null;
     const drillBar = item
       ? `
         <div class="chat-followups" style="margin-top:0.85rem">
@@ -3250,7 +3251,61 @@ function renderRootCauseOutput(data) {
         </div>
       `
       : '';
-    pane.innerHTML = `<div class="rc-narrative-body">${renderMarkdown(narrative)}</div>${drillBar}`;
+
+    let mainBodyHtml = '';
+    if (exec && exec.what_is_the_problem && exec.why_it_happened && exec.possible_options_to_fix) {
+      const prob = exec.what_is_the_problem;
+      const why  = exec.why_it_happened;
+      const fix  = exec.possible_options_to_fix;
+
+      const probBullets = (prob.bullets || []).map((b) => `<li>${renderMarkdown(String(b))}</li>`).join('');
+      const whyBullets  = (why.bullets || []).map((b) => `<li>${renderMarkdown(String(b))}</li>`).join('');
+      const fixItems    = (fix.options || []).map((opt, idx) => {
+        const impact = String(opt.impact || 'Medium');
+        const impactCls = impact.toLowerCase() === 'high' ? 'rc-impact-high' : impact.toLowerCase() === 'low' ? 'rc-impact-low' : 'rc-impact-med';
+        return `
+          <div class="rc-option-item">
+            <div class="rc-option-head">
+              <span class="rc-option-title">${idx + 1}. ${renderMarkdown(String(opt.action || ''))}</span>
+              <span class="rc-option-badges">
+                ${opt.owner ? `<span class="rc-owner-pill">${escapeHtml(String(opt.owner))}</span>` : ''}
+                <span class="rc-impact-pill ${impactCls}">${escapeHtml(impact)} Impact</span>
+              </span>
+            </div>
+            <div class="rc-option-detail">${renderMarkdown(String(opt.detail || ''))}</div>
+          </div>
+        `;
+      }).join('');
+
+      const durationNote = typeof stats.duration_ms === 'number'
+        ? `<div class="rc-exec-footnote">Grounded BY ESP analysis completed in ${stats.duration_ms}ms.</div>`
+        : '';
+
+      mainBodyHtml = `
+        <div class="rc-exec-grid">
+          <section class="rc-exec-card rc-exec-problem">
+            <div class="rc-exec-kicker">1. What is the Problem</div>
+            <div class="rc-exec-headline">${renderMarkdown(String(prob.headline || ''))}</div>
+            ${probBullets ? `<ul class="rc-exec-list">${probBullets}</ul>` : ''}
+          </section>
+          <section class="rc-exec-card rc-exec-why">
+            <div class="rc-exec-kicker">2. Why the Problem Happened</div>
+            <div class="rc-exec-headline">${renderMarkdown(String(why.headline || ''))}</div>
+            ${whyBullets ? `<ul class="rc-exec-list">${whyBullets}</ul>` : ''}
+          </section>
+          <section class="rc-exec-card rc-exec-fix">
+            <div class="rc-exec-kicker">3. Possible Options to Fix the Problem</div>
+            <div class="rc-exec-headline">${escapeHtml(String(fix.headline || ''))}</div>
+            <div class="rc-options-list">${fixItems}</div>
+          </section>
+        </div>
+        ${durationNote}
+      `;
+    } else {
+      mainBodyHtml = `<div class="rc-narrative-body">${renderMarkdown(narrative)}</div>`;
+    }
+
+    pane.innerHTML = `${mainBodyHtml}${drillBar}`;
     const kgLink = pane.querySelector('.rc-drill-kg');
     if (kgLink) {
       kgLink.addEventListener('click', () => {
@@ -3270,20 +3325,130 @@ function renderRootCauseOutput(data) {
     }
   }
 
-  // ── raw data toggle (assign onclick to prevent duplicate listener leak) ──
+function renderRootCauseSupportingData(rawData, stats) {
+  if (!rawData || typeof rawData !== 'object') return '';
+
+  const fmtVal = (v) => (typeof v === 'number' ? kgFormatNum(v) : (v !== null && v !== undefined && v !== '' ? escapeHtml(String(v)) : '—'));
+
+  const inv = rawData['Inventory & EOH'] || {};
+  const bom = rawData['BOM & Sourcing'] || {};
+  const skuExcs = Array.isArray(rawData['SKU Exceptions']) ? rawData['SKU Exceptions'] : [];
+  const resExcs = Array.isArray(rawData['Resource Exceptions']) ? rawData['Resource Exceptions'] : [];
+  const pegRows = Array.isArray(rawData['Top Supply Pegging']) ? rawData['Top Supply Pegging'] : [];
+
+  const renderTableSection = (title, sourceTag, columns, rows, emptyText) => {
+    const bodyHtml = rows.length
+      ? `
+        <div class="rc-support-table-wrap">
+          <table class="rc-support-table">
+            <thead>
+              <tr>${columns.map((c) => `<th${c.num ? ' class="num"' : ''}>${escapeHtml(c.label)}</th>`).join('')}</tr>
+            </thead>
+            <tbody>
+              ${rows.map((row) => `
+                <tr>
+                  ${columns.map((c) => {
+                    const raw = row[c.key];
+                    const txt = c.num ? fmtVal(Number(raw || 0)) : (raw !== null && raw !== undefined && raw !== '' ? escapeHtml(String(raw)) : '—');
+                    return `<td${c.num ? ' class="num"' : ''}>${txt}</td>`;
+                  }).join('')}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `
+      : `<div class="rc-support-empty">${escapeHtml(emptyText)}</div>`;
+
+    return `
+      <div class="rc-support-section">
+        <div class="rc-support-section-head">
+          <h4>${escapeHtml(title)}</h4>
+          <span class="rc-support-source">${escapeHtml(sourceTag)}</span>
+        </div>
+        ${bodyHtml}
+      </div>
+    `;
+  };
+
+  return `
+    <div class="rc-support-wrap">
+      <div class="rc-support-cards">
+        <div class="rc-support-card">
+          <h4>Inventory &amp; EOH Position</h4>
+          <div class="rc-support-kv">
+            <div><span>On-Hand Qty</span><strong>${fmtVal(inv.on_hand_qty ?? stats.on_hand_qty ?? 0)}</strong></div>
+            <div><span>Max Projected OH</span><strong>${fmtVal(inv.max_proj_oh ?? 0)}</strong></div>
+            <div><span>Stockout Qty</span><strong>${fmtVal(inv.stockout_qty ?? 0)}</strong></div>
+            <div><span>Below Safety Stock</span><strong>${fmtVal(inv.stocklow_qty ?? 0)}</strong></div>
+          </div>
+        </div>
+        <div class="rc-support-card">
+          <h4>Master Data &amp; Contention</h4>
+          <div class="rc-support-kv">
+            <div><span>BOM Links</span><strong>${fmtVal(bom.bom_links ?? 0)}</strong></div>
+            <div><span>Sourcing Rules</span><strong>${fmtVal(bom.sourcing_rules ?? 0)}</strong></div>
+            <div><span>Linked Resources</span><strong>${fmtVal(stats.resources_affected ?? 0)}</strong></div>
+            <div><span>Competing Demand Rows</span><strong>${fmtVal(stats.competing_demand_rows ?? 0)}</strong></div>
+          </div>
+        </div>
+      </div>
+
+      ${renderTableSection(
+        'SKU Exceptions',
+        'by_if_snop_out_skuexception',
+        [
+          { key: 'reason', label: 'Exception Reason' },
+          { key: 'severity', label: 'Severity' },
+          { key: 'occurrences', label: 'Occurrences', num: true },
+        ],
+        skuExcs,
+        'No SKU exceptions logged for this item in the selected scope.'
+      )}
+
+      ${renderTableSection(
+        'Resource / Capacity Exceptions',
+        'by_if_snop_out_resexception',
+        [
+          { key: 'res', label: 'Resource' },
+          { key: 'reason', label: 'Exception Reason' },
+          { key: 'occurrences', label: 'Occurrences', num: true },
+        ],
+        resExcs,
+        'No resource/capacity exceptions logged on linked resources.'
+      )}
+
+      ${renderTableSection(
+        'Top Supply Pegging Sources',
+        'by_if_snop_out_inddmdlink',
+        [
+          { key: 'supply_item', label: 'Supply Item' },
+          { key: 'supply_loc', label: 'Location' },
+          { key: 'supply_type', label: 'Supply Type' },
+          { key: 'supply_method', label: 'Method' },
+          { key: 'pegged_qty', label: 'Pegged Qty', num: true },
+        ],
+        pegRows,
+        'No direct supply pegging rows found for this item.'
+      )}
+    </div>
+  `;
+}
+
+  // ── supporting evidence toggle (assign onclick to prevent duplicate listener leak) ──
   const toggleWrap = document.getElementById('rcRawToggleWrap');
   const rawDrawer  = document.getElementById('rcRawDrawer');
   const toggleBtn  = document.getElementById('rcRawToggleBtn');
   if (toggleWrap && rawDrawer && toggleBtn && rawData) {
-    rawDrawer.innerHTML = renderObject(rawData);
+    rawDrawer.innerHTML = renderRootCauseSupportingData(rawData, stats);
     rawDrawer.classList.remove('open');
     toggleBtn.setAttribute('aria-expanded', 'false');
-    toggleBtn.textContent = 'Show raw structured data';
+    toggleBtn.textContent = 'Show supporting evidence';
     toggleWrap.style.display = '';
     toggleBtn.onclick = () => {
       const open = rawDrawer.classList.toggle('open');
       toggleBtn.setAttribute('aria-expanded', String(open));
-      toggleBtn.textContent = open ? 'Hide raw structured data' : 'Show raw structured data';
+      toggleBtn.textContent = open ? 'Hide supporting evidence' : 'Show supporting evidence';
     };
   }
 }

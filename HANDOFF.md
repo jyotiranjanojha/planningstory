@@ -1,8 +1,8 @@
 # Intel Foundry Planning Story — Project Handoff
 
-> **Last updated:** 2026-11-26 (Late Evening — Shared File Path, Auto-Refresh Cache, Model Garden Custom LLM & Single-`.env` CaaS Workflow)  
-> **Repository:** `https://github.com/jyotiranjanojha/planningstory.git` (`origin/main` — sole canonical repository)  
-> **Latest Release Tag:** `v2.1.0` + shared-path / Model Garden / CaaS `.env` updates
+> **Last updated:** 2026-11-27 (Afternoon — Live Intel Model Garden `Qwen3-8B.w8a8` Verification, `LLM_TEMPERATURE=0.1`, Capacity Routing Fix & Tier-1 Dead-Code Cleanup)  
+> **Repository:** `https://github.com/jyotiranjanojha/planningstory.git` (`origin/main` — sole canonical repository, latest commit `a2b1606`)  
+> **Latest Release Tag:** `v2.1.0` + shared-path / Model Garden / Qwen3 / CaaS `.env` updates
 > **Harbor Project:** `https://amr-registry-pre.caas.intel.com/harbor/projects/125194/repositories` (`if-pdh-ai-assist`)  
 > **Rancher Namespace:** `https://amr-pre.caas.intel.com/dashboard/c/c-skrnn/explorer/namespace/if-pdh-ai-assist` (`if-pdh-ai-assist`)
 
@@ -37,7 +37,26 @@ This document captures the exact end-of-day state of the project so the next ses
 
 ---
 
-## 3. Completed Today (2026-11-26)
+## 3. Completed Recently
+
+### 2026-11-27 (Latest Session — Commit `a2b1606`)
+- **Live Intel Model Garden (`custom` LLM) End-to-End Verification (`Qwen3-8B.w8a8`):**
+  - Configured local `.env` with `LLM_PROVIDER=custom`, `CUSTOM_LLM_BASE_URL=https://models-gcp.intel.com`, `CUSTOM_LLM_MODEL=Qwen3-8B.w8a8`, and live API key (`.env` remains gitignored).
+  - Caught and fixed Qwen3 `<think>...</think>` reasoning token leakage/truncation: added `should_disable_thinking()` (automatically sends `chat_template_kwargs: {"enable_thinking": False}` for Qwen3 on `custom` endpoints, overridable via `CUSTOM_LLM_DISABLE_THINKING`) and `strip_think_tags()` in `webapp/app/v2/core/llm.py` and `webapp/app/analyzer.py`.
+  - Verified live: `UnifiedLLMClient.chat()` → `'Model Garden OK'`, `UnifiedLLMClient.stream()` → `7` SSE chunks (`'1, 2, 3'`), `GET /api/ready` → `HTTP 200` (`40` DuckDB views, `custom` / `Qwen3-8B.w8a8`).
+- **Deterministic Temperature (`LLM_TEMPERATURE=0.1`):**
+  - Added `.env`-driven `LLM_TEMPERATURE` (default `0.1`, clamped `[0.0, 2.0]`) across `webapp/app/v2/core/llm.py`, `webapp/app/analyzer.py`, `.env`, `.env.example`, and `.env.caas.example`.
+- **Browser Log Audit & `CapacityAgent` Routing / Metrics Fix:**
+  - Fixed a routing bug in `webapp/app/v2/orchestrator/copilot.py` where bare `" vs "` / `"versus"` in `_SCENARIO_KEYWORDS` hijacked `"What is the overall capacity utilization vs capacity available"` into `ScenarioAgent`. Replaced with explicit scenario phrases (`scenario vs`, `week vs`, `constrained vs`, `unconstrained vs`).
+  - Updated `webapp/app/v2/agents/capacity.py` to surface **Total Capacity Load vs Available** (`total_load`, `total_avail_cap`, `weighted_utilization_pct`) directly in findings and metrics.
+- **Root Cause Module — Business 3-Pillar Executive View:**
+  - Upgraded `RootCauseAgent` (`webapp/app/v2/agents/root_cause.py`) to emit a structured `executive_summary` + 3-section narrative answering **1. What is the Problem**, **2. Why the Problem Happened**, and **3. Possible Options to Fix the Problem** (evidence-driven action cards with Owner + Impact badges).
+  - Upgraded `renderRootCauseOutput()` (`webapp/app/static/app.js`, `webapp/app/static/styles.css`) to render color-coded 3-pillar executive cards directly below the KPI stats strip.
+- **Tier-1 Dead-Code Cleanup (`-1,466` lines):**
+  - Removed 10 unreferenced files: unwired OpenVINO document RAG cluster (`document_ingest_pipeline.py`, `document_loader.py`, `chunking.py`, `embedding_service.py`, `vector_store.py`, `retriever.py`, `tests/test_hybrid_rag_components.py`), orphan `kpi_engine.py` + `tests/test_kpi_engine.py`, and `scripts/verify_chat_context_fix.py`.
+  - Kept `rag.py`, `text_to_sql_agent.py`, `rag_openvino.py`, and `semantic_regression.py` intact (for BY ESP schema-drift flexibility; Tier-2 cleanup deferred).
+
+### 2026-11-26
 
 - **Clean Repository & New Canonical Git Repo:**
   - Removed dead/duplicate/unwired modules, untracked `.env` (kept local `.env` intact), created fresh clean history on `https://github.com/jyotiranjanojha/planningstory.git`, removed stale legacy remote, and tagged `v2.0.0` → `v2.1.0`.
@@ -73,25 +92,28 @@ This document captures the exact end-of-day state of the project so the next ses
   - Direct Backend (no SSO): `http://127.0.0.1:8001`
   - Readiness Check: `GET http://127.0.0.1:3004/api/ready` → `HTTP 200` (`40` DuckDB views from live shared path cache)
 - **Automated Checks Passing:**
-  - `pytest -p no:cacheprovider tests/test_v2_core.py` → **14/14 passed** (includes Snowflake Cortex REST/SQL, shared-path + incremental auto-refresh cache, and Intel Model Garden `custom` LLM tests)
+  - `pytest -p no:cacheprovider tests/test_v2_core.py` → **17/17 passed** (includes Snowflake Cortex REST/SQL, shared-path + incremental auto-refresh cache, Intel Model Garden `custom` LLM, Qwen3 `<think>` stripping + `LLM_TEMPERATURE=0.1`, `CapacityAgent` routing, and 3-pillar `RootCauseAgent` executive summary tests)
+  - `webapp.app.main` import check → **passed** (`MAIN_IMPORT_OK`)
   - `node --check` on all `src/**/*.js` and `webapp/app/static/app.js` → **passed**
   - YAML validation across all `deploy/rancher/*.yaml` manifests (including `shared-storage-smb.yaml`) → **all valid**
   - Live shared snapshot data: `\\IFBYESPconshare-dm.cps.intel.com\IFBYESP\R3_dev\pdh_ai_app\{by_input,by_output}` (**22** input + **18** output CSVs, cached locally in `data/snapshot_cache/`)
+  - Active local LLM: `LLM_PROVIDER=custom`, `CUSTOM_LLM_MODEL=Qwen3-8B.w8a8`, `LLM_TEMPERATURE=0.1` (`https://models-gcp.intel.com`)
 
 ---
 
 ## 5. Next Steps (Where to Pick Up Next)
 
-1. **Choose Headless LLM for CaaS (Single `.env.caas` Change):**
-   - **Fastest path:** Intel Model Garden (`LLM_PROVIDER=custom`, `CUSTOM_LLM_BASE_URL=https://models-gcp.intel.com`, `CUSTOM_LLM_API_KEY=sk-...`, `CUSTOM_LLM_MODEL=claude-opus-4-8`) — works identically locally and in headless CaaS pods with zero SSO friction.
-   - **Alternative:** Snowflake Cortex REST (`PAT` or RSA Key-Pair JWT).
+1. **Optional Refinement Before CaaS Rollout:**
+   - Filter out sentinel/infinite `AVAILCAP` rows in `CapacityAgent` weighted utilization ratio if desired (currently `total_avail_cap` includes very large unconstrained resource capacities).
+   - Optionally add BY ESP schema-contract validation checks to `ValidationAgent` / V2 golden-query tests to guard against future BY file structure changes.
 2. **Harbor Build & Push (`if-pdh-ai-assist`):**
    - Configure `HARBOR_USERNAME` and `HARBOR_PASSWORD` secrets in GitHub (`planningstory` repo) and run `.github/workflows/push-to-harbor.yml` (or run manual `docker build && docker push` to `amr-registry-pre.caas.intel.com/if-pdh-ai-assist/planningstory`).
 3. **Rancher / CaaS Deployment into `if-pdh-ai-assist` (`c-skrnn`):**
-   - Copy `.env.caas.example` → `.env.caas`, fill in LLM key + Entra ID SSO + `/mnt/planning-data`, and load into `planningstory-secrets` (`--from-env-file=.env.caas`).
+   - Copy `.env.caas.example` → `.env.caas`, fill in verified Model Garden settings (`LLM_PROVIDER=custom`, `LLM_TEMPERATURE=0.1`, `CUSTOM_LLM_BASE_URL=https://models-gcp.intel.com`, `CUSTOM_LLM_API_KEY=sk-...`, `CUSTOM_LLM_MODEL=Qwen3-8B.w8a8` or `claude-opus-4-8`) + Entra ID SSO + `/mnt/planning-data`, and load into `planningstory-secrets` (`--from-env-file=.env.caas`).
    - Create `harbor-regcred` and `planningstory-smb-creds` secrets in `if-pdh-ai-assist`, apply `deploy/rancher/shared-storage-smb.yaml`, and uncomment the `planning-shared-data` mount in `deploy/rancher/deployment.yaml`.
    - Set final Ingress hostname + TLS secret in `deploy/rancher/ingress.yaml`, then run `kubectl apply -k deploy/rancher/`.
    - Verify Entra ID SSO sign-in, `/api/ready`, `/api/v2/health`, SSE streaming (`/api/chat/stream`), and HTML report downloads through Rancher NGINX Ingress.
 4. **Long-Term Roadmap:**
    - Connect live Snowflake PDH tables/views as the end-state data source alongside the shared file path engine.
+   - Add Model Garden `/v1/embeddings`-backed document RAG for unstructured BY ESP data dictionaries / planner SOPs (replacing legacy OpenVINO RAG).
    - Add 5-minute `NodeCache` caching on Microsoft Graph `checkMemberGroups` in `src/app.js` (if `AZURE_REQUIRE_GROUP_CHECK=true` is enabled).

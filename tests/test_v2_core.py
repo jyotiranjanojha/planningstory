@@ -324,3 +324,20 @@ def test_v2_capacity_vs_available_routing():
     copilot = PlanningCopilotV2(Path(__file__).resolve().parents[1])
     assert copilot.classify_route("What is the overall capacity utilization vs capacity available") == "capacity"
     assert copilot.classify_route("Compare scenario CONSTRAINED vs UNCONSTRAINED") == "scenario"
+
+
+def test_v2_root_cause_executive_summary():
+    from webapp.app.v2.agents.root_cause import RootCauseAgent
+
+    engine = get_data_engine(Path(__file__).resolve().parents[1])
+    result = RootCauseAgent(engine).analyze(demand_id="2000-280-868", question_type="full_diagnosis")
+    exec_sum = result.get("executive_summary") or {}
+    assert "what_is_the_problem" in exec_sum
+    assert "why_it_happened" in exec_sum
+    assert "possible_options_to_fix" in exec_sum
+    assert exec_sum["what_is_the_problem"]["headline"]
+    assert len(exec_sum["why_it_happened"]["bullets"]) >= 1
+    assert len(exec_sum["possible_options_to_fix"]["options"]) >= 1
+    assert "#### 1. What is the Problem" in result["narrative"]
+    assert "#### 2. Why the Problem Happened" in result["narrative"]
+    assert "#### 3. Possible Options to Fix the Problem" in result["narrative"]
