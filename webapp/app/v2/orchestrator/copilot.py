@@ -43,7 +43,8 @@ _VALIDATION_KEYWORDS = (
 )
 _SCENARIO_KEYWORDS = (
     "compare scenario", "scenario compare", "scenario comparison", "solve over solve",
-    "week over week", "scenario delta", "versus", " vs ", "site mix", "which scenario",
+    "week over week", "scenario delta", "scenario vs", "week vs",
+    "constrained vs", "unconstrained vs", "site mix", "which scenario",
 )
 _INVENTORY_KEYWORDS = (
     "inventory", "on hand", "on-hand", "onhand", "eoh", "end of horizon", "end-of-horizon",

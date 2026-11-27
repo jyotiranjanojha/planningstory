@@ -83,9 +83,13 @@ OPENVINO_MODEL = os.getenv("OPENVINO_MODEL", "DeepSeek-R1-Distill-Qwen-7B")
 OPENVINO_JUDGE_MODEL = os.getenv("OPENVINO_JUDGE_MODEL", "DeepSeek-R1-Distill-Qwen-7B")
 OPENVINO_VISION_MODEL = os.getenv("OPENVINO_VISION_MODEL", "DeepSeek-R1-Distill-Qwen-7B")
 
-# Judge/Review LLM Enable Flag
+# Judge/Review LLM Enable Flag & Generation Temperature
 JUDGE_LLM_ENABLED = os.getenv("JUDGE_LLM_ENABLED", "true")
 NO_LLM_RESPONSE_MODE = os.getenv("NO_LLM_RESPONSE_MODE", "false").strip().lower() in {"1", "true", "yes", "on"}
+try:
+    LLM_TEMPERATURE = max(0.0, min(2.0, float(os.getenv("LLM_TEMPERATURE", "0.1"))))
+except ValueError:
+    LLM_TEMPERATURE = 0.1
 
 # Global OpenVINO pipeline (cached)
 _OPENVINO_PIPELINE = None
@@ -1986,20 +1990,24 @@ def stream_llm(
     if provider == "snowflake_cortex" and LLM_CONFIG.get("cortex_mode") == "sql":
         try:
             from .v2.core.llm import cortex_sql_complete
-            reply = cortex_sql_complete(messages, selected_model, temperature=0.2, max_tokens=400)
+            reply = cortex_sql_complete(messages, selected_model, temperature=LLM_TEMPERATURE, max_tokens=400)
             if reply:
                 yield reply
         except Exception as _exc:
             print(f"[IFSP] Snowflake Cortex SQL stream error: {_exc}")
         return
 
+    from .v2.core.llm import should_disable_thinking
+
     payload = {
         "model": selected_model,
         "messages": messages,
-        "temperature": 0.2,
+        "temperature": LLM_TEMPERATURE,
         "max_tokens": 400,   # shorter = GPU freed faster for next queued request
         "stream": True,            # ← key change: enables SSE streaming
     }
+    if should_disable_thinking(provider, selected_model):
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
     data = json.dumps(payload).encode("utf-8")
 
     base_url = LLM_CONFIG["base_url"]
@@ -2435,18 +2443,22 @@ def _ollama_chat_with_model(
 
     messages.append({"role": "user", "content": prompt})
 
+    from .v2.core.llm import should_disable_thinking, strip_think_tags
+
     # Build request for OpenAI-compatible API (works for Nollama, OpenAI, Anthropic, Azure, custom)
     payload = {
         "model": selected_model,
         "messages": messages,
-        "temperature": 0.2,
+        "temperature": LLM_TEMPERATURE,
         "max_tokens": 900,
     }
+    if should_disable_thinking(LLM_CONFIG.get("provider", ""), selected_model):
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
 
     if LLM_CONFIG.get("provider") == "snowflake_cortex" and LLM_CONFIG.get("cortex_mode") == "sql":
         try:
             from .v2.core.llm import cortex_sql_complete
-            return cortex_sql_complete(payload["messages"], payload["model"], temperature=0.2, max_tokens=900)
+            return cortex_sql_complete(payload["messages"], payload["model"], temperature=LLM_TEMPERATURE, max_tokens=900)
         except Exception:
             return None
 
@@ -2490,7 +2502,7 @@ def _ollama_chat_with_model(
     choices = body.get("choices") or []
     if choices:
         message = choices[0].get("message") or {}
-        content = (message.get("content") or "").strip()
+        content = strip_think_tags((message.get("content") or "").strip())
         return content or None
     return None
 
@@ -2518,7 +2530,7 @@ def _openvino_chat_with_model(prompt: str, system_prompt: str, selected_model: s
         response = pipeline.generate(
             formatted_prompt,
             max_new_tokens=1200,
-            temperature=0.2,
+            temperature=LLM_TEMPERATURE,
             top_p=0.9,
             do_sample=True
         )

@@ -8,11 +8,36 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Generator, List, Optional
 from urllib import error, request
+
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
+def strip_think_tags(text: str) -> str:
+    """Remove <think>...</think> reasoning blocks emitted by Qwen3 / DeepSeek-R1 models."""
+    if not text:
+        return ""
+    cleaned = _THINK_BLOCK_RE.sub("", text)
+    if "</think>" in cleaned:
+        cleaned = cleaned.split("</think>", 1)[-1]
+    elif "<think>" in cleaned:
+        cleaned = cleaned.split("<think>", 1)[0]
+    return cleaned.strip()
+
+
+def should_disable_thinking(provider: str, model: str) -> bool:
+    """Disable Qwen3 chain-of-thought verbosity on OpenAI-compatible/vLLM endpoints by default."""
+    flag = os.getenv("CUSTOM_LLM_DISABLE_THINKING", "auto").strip().lower()
+    if flag in {"1", "true", "yes", "on"}:
+        return True
+    if flag in {"0", "false", "no", "off"}:
+        return False
+    return provider == "custom" and "qwen3" in (model or "").lower()
 
 
 def _normalize_loopback(url: str) -> str:
@@ -23,6 +48,18 @@ def _normalize_loopback(url: str) -> str:
     if clean.startswith("https://localhost"):
         return clean.replace("https://localhost", "https://127.0.0.1", 1)
     return clean
+
+
+def load_llm_temperature(default: float = 0.1) -> float:
+    """Read LLM_TEMPERATURE from env (default 0.1 for deterministic planning responses)."""
+    raw = os.getenv("LLM_TEMPERATURE", "").strip()
+    if not raw:
+        return default
+    try:
+        val = float(raw)
+    except ValueError:
+        return default
+    return max(0.0, min(2.0, val))
 
 
 @dataclass(frozen=True)
@@ -37,6 +74,7 @@ class LLMSettings:
     api_version: Optional[str] = None
     token_type: Optional[str] = None
     cortex_mode: str = "rest"  # "rest" (PAT/JWT) or "sql" (SNOWFLAKE.CORTEX.COMPLETE)
+    temperature: float = 0.1
     http_timeout_secs: int = 120
     ttft_timeout_secs: int = 90
 
@@ -133,7 +171,7 @@ def _get_snowflake_connection():
 def cortex_sql_complete(
     messages: List[Dict[str, str]],
     model: str,
-    temperature: float = 0.2,
+    temperature: float = 0.1,
     max_tokens: int = 500,
 ) -> Optional[str]:
     """Call SNOWFLAKE.CORTEX.COMPLETE(model, messages, options) via Snowflake SQL."""
@@ -196,6 +234,7 @@ def _resolve_cortex_base_url() -> str:
 def load_llm_settings() -> LLMSettings:
     """Build active LLMSettings purely from environment variables."""
     provider = os.getenv("LLM_PROVIDER", "ollama").strip().lower()
+    temperature = load_llm_temperature(0.1)
     http_timeout = max(15, int(os.getenv("STREAM_LLM_HTTP_TIMEOUT_SECS", "120")))
     ttft_timeout = max(10, int(os.getenv("STREAM_LLM_TTFT_TIMEOUT_SECS", "90")))
 
@@ -207,6 +246,7 @@ def load_llm_settings() -> LLMSettings:
             model=model,
             sql_model=os.getenv("OLLAMA_SQL_MODEL", model).strip(),
             vision_model=os.getenv("OLLAMA_VISION_MODEL", "gemma3:latest").strip(),
+            temperature=temperature,
             http_timeout_secs=http_timeout,
             ttft_timeout_secs=ttft_timeout,
         )
@@ -226,6 +266,7 @@ def load_llm_settings() -> LLMSettings:
             auth_header="Authorization",
             token_type=os.getenv("SNOWFLAKE_CORTEX_TOKEN_TYPE", "PROGRAMMATIC_ACCESS_TOKEN").strip() or None,
             cortex_mode=cortex_mode,
+            temperature=temperature,
             http_timeout_secs=http_timeout,
             ttft_timeout_secs=ttft_timeout,
         )
@@ -239,6 +280,7 @@ def load_llm_settings() -> LLMSettings:
             sql_model=model,
             vision_model=os.getenv("OPENAI_VISION_MODEL", model).strip(),
             api_key=os.getenv("OPENAI_API_KEY", "").strip() or None,
+            temperature=temperature,
             http_timeout_secs=http_timeout,
             ttft_timeout_secs=ttft_timeout,
         )
@@ -255,6 +297,7 @@ def load_llm_settings() -> LLMSettings:
             api_key=os.getenv("AZURE_OPENAI_API_KEY", "").strip() or None,
             auth_header="api-key",
             api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01").strip(),
+            temperature=temperature,
             http_timeout_secs=http_timeout,
             ttft_timeout_secs=ttft_timeout,
         )
@@ -269,6 +312,7 @@ def load_llm_settings() -> LLMSettings:
             vision_model=os.getenv("ANTHROPIC_VISION_MODEL", model).strip(),
             api_key=os.getenv("ANTHROPIC_API_KEY", "").strip() or None,
             auth_header="x-api-key",
+            temperature=temperature,
             http_timeout_secs=http_timeout,
             ttft_timeout_secs=ttft_timeout,
         )
@@ -283,6 +327,7 @@ def load_llm_settings() -> LLMSettings:
             vision_model=os.getenv("CUSTOM_LLM_VISION_MODEL", model).strip() or model,
             api_key=os.getenv("CUSTOM_LLM_API_KEY", "").strip() or None,
             auth_header=os.getenv("CUSTOM_LLM_AUTH_HEADER", "Authorization").strip() or "Authorization",
+            temperature=temperature,
             http_timeout_secs=http_timeout,
             ttft_timeout_secs=ttft_timeout,
         )
@@ -295,6 +340,7 @@ def load_llm_settings() -> LLMSettings:
         model=model,
         sql_model=model,
         vision_model=os.getenv("NOLLAMA_VISION_MODEL", model).strip(),
+        temperature=temperature,
         http_timeout_secs=http_timeout,
         ttft_timeout_secs=ttft_timeout,
     )
@@ -382,26 +428,29 @@ class UnifiedLLMClient:
         system_prompt: str,
         model: Optional[str] = None,
         max_tokens: int = 400,
-        temperature: float = 0.2,
+        temperature: Optional[float] = None,
     ) -> Optional[str]:
         selected = (model or self.settings.model).strip()
+        effective_temp = self.settings.temperature if temperature is None else float(temperature)
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ]
         if self.settings.provider == "snowflake_cortex" and self.settings.cortex_mode == "sql":
             try:
-                return cortex_sql_complete(messages, selected, temperature=temperature, max_tokens=max_tokens)
+                return cortex_sql_complete(messages, selected, temperature=effective_temp, max_tokens=max_tokens)
             except Exception:
                 return None
 
-        payload = {
+        payload: Dict[str, Any] = {
             "model": selected,
             "messages": messages,
-            "temperature": temperature,
+            "temperature": effective_temp,
             "max_tokens": max_tokens,
             "stream": False,
         }
+        if should_disable_thinking(self.settings.provider, selected):
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
         req = request.Request(
             self._completions_url(),
             data=json.dumps(payload).encode("utf-8"),
@@ -413,7 +462,8 @@ class UnifiedLLMClient:
                 body = json.loads(resp.read().decode("utf-8"))
             choices = body.get("choices") or []
             if choices:
-                return ((choices[0].get("message") or {}).get("content") or "").strip() or None
+                raw_content = ((choices[0].get("message") or {}).get("content") or "").strip()
+                return strip_think_tags(raw_content) or None
         except (error.URLError, TimeoutError, json.JSONDecodeError, OSError):
             return None
         return None
@@ -424,29 +474,32 @@ class UnifiedLLMClient:
         system_prompt: str,
         model: Optional[str] = None,
         max_tokens: int = 400,
-        temperature: float = 0.2,
+        temperature: Optional[float] = None,
     ) -> Generator[str, None, None]:
         selected = (model or self.settings.model).strip()
+        effective_temp = self.settings.temperature if temperature is None else float(temperature)
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ]
         if self.settings.provider == "snowflake_cortex" and self.settings.cortex_mode == "sql":
             try:
-                reply = cortex_sql_complete(messages, selected, temperature=temperature, max_tokens=max_tokens)
+                reply = cortex_sql_complete(messages, selected, temperature=effective_temp, max_tokens=max_tokens)
                 if reply:
-                    yield reply
+                    yield strip_think_tags(reply)
             except Exception:
                 return
             return
 
-        payload = {
+        payload: Dict[str, Any] = {
             "model": selected,
             "messages": messages,
-            "temperature": temperature,
+            "temperature": effective_temp,
             "max_tokens": max_tokens,
             "stream": True,
         }
+        if should_disable_thinking(self.settings.provider, selected):
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
         req = request.Request(
             self._completions_url(),
             data=json.dumps(payload).encode("utf-8"),
@@ -455,6 +508,7 @@ class UnifiedLLMClient:
         )
         started = time.perf_counter()
         first_token = False
+        in_think = False
         try:
             with request.urlopen(req, timeout=self.settings.http_timeout_secs) as resp:
                 for raw_line in resp:
@@ -471,6 +525,14 @@ class UnifiedLLMClient:
                     if not choices:
                         continue
                     delta = (choices[0].get("delta") or {}).get("content") or ""
+                    if not delta:
+                        continue
+                    if "</think>" in delta:
+                        delta = delta.split("</think>", 1)[-1]
+                        in_think = False
+                    if "<think>" in delta or in_think:
+                        in_think = True
+                        continue
                     if delta:
                         first_token = True
                         yield delta

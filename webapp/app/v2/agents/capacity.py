@@ -264,6 +264,8 @@ class CapacityAgent:
         avg_util = 0.0
         overloaded_buckets = 0
         underloaded_buckets = 0
+        total_avail_cap = 0.0
+        total_load = 0.0
 
         if self.data.has_table(self.RES_PROJ_TABLE):
             evidence.append(self.RES_PROJ_TABLE)
@@ -292,6 +294,14 @@ class CapacityAgent:
             avg_util = float(agg.get("avg_util") or 0)
             overloaded_buckets = int(agg.get("overloaded_buckets") or 0)
             underloaded_buckets = int(agg.get("underloaded_buckets") or 0)
+            total_avail_cap = float(agg.get("total_avail_cap") or 0)
+            total_load = float(agg.get("total_load") or 0)
+            weighted_util = (total_load / total_avail_cap * 100.0) if total_avail_cap > 0 else 0.0
+
+            findings.append(
+                f"Total Capacity Load vs Available: **{_fmt_num(total_load)}** load / **{_fmt_num(total_avail_cap)}** available "
+                f"(Weighted Load/Avail: **{weighted_util:.1f}%**, Simple Bucket Avg: **{avg_util:.1f}%**)."
+            )
 
             top_rows = self.data.query(
                 f"""
@@ -361,6 +371,9 @@ class CapacityAgent:
             metrics={
                 "distinct_resources": distinct_res,
                 "avg_utilization_pct": avg_util,
+                "total_load": round(total_load, 2),
+                "total_avail_cap": round(total_avail_cap, 2),
+                "weighted_utilization_pct": round((total_load / total_avail_cap * 100.0) if total_avail_cap > 0 else 0.0, 2),
                 "overloaded_buckets": overloaded_buckets,
                 "underloaded_buckets": underloaded_buckets,
                 "top_resource": top_res_name,

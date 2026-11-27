@@ -292,3 +292,35 @@ def test_v2_custom_llm_model_garden(monkeypatch):
         headers = client._headers()
         assert headers["Authorization"] == "Bearer sk-test-model-garden"
         assert headers["Content-Type"] == "application/json"
+
+
+def test_v2_qwen3_think_stripping_and_toggle(monkeypatch):
+    from webapp.app.v2.core.llm import should_disable_thinking, strip_think_tags
+
+    assert strip_think_tags("<think>\ninternal reasoning\n</think>\n\nModel Garden OK") == "Model Garden OK"
+    assert strip_think_tags("reasoning</think>Final Answer") == "Final Answer"
+    assert strip_think_tags("<think>truncated reasoning") == ""
+    assert strip_think_tags("Plain response") == "Plain response"
+
+    monkeypatch.delenv("CUSTOM_LLM_DISABLE_THINKING", raising=False)
+    assert should_disable_thinking("custom", "Qwen3-8B.w8a8") is True
+    assert should_disable_thinking("custom", "claude-opus-4-8") is False
+
+    monkeypatch.setenv("CUSTOM_LLM_DISABLE_THINKING", "false")
+    assert should_disable_thinking("custom", "Qwen3-8B.w8a8") is False
+    monkeypatch.setenv("CUSTOM_LLM_DISABLE_THINKING", "true")
+    assert should_disable_thinking("custom", "claude-opus-4-8") is True
+
+    monkeypatch.delenv("LLM_TEMPERATURE", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "custom")
+    monkeypatch.setenv("CUSTOM_LLM_BASE_URL", "https://models-gcp.intel.com")
+    monkeypatch.setenv("CUSTOM_LLM_MODEL", "Qwen3-8B.w8a8")
+    assert load_llm_settings().temperature == 0.1
+    monkeypatch.setenv("LLM_TEMPERATURE", "0.0")
+    assert load_llm_settings().temperature == 0.0
+
+
+def test_v2_capacity_vs_available_routing():
+    copilot = PlanningCopilotV2(Path(__file__).resolve().parents[1])
+    assert copilot.classify_route("What is the overall capacity utilization vs capacity available") == "capacity"
+    assert copilot.classify_route("Compare scenario CONSTRAINED vs UNCONSTRAINED") == "scenario"
